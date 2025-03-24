@@ -23,7 +23,7 @@ pub fn parseXml(backing_allocator: Allocator, root: *xml.Element) !ParseResult {
 
     const allocator = arena.allocator();
 
-    var reg = registry.Registry{
+    const reg = registry.Registry{
         .decls = try parseDeclarations(allocator, root),
         .api_constants = try parseApiConstants(allocator, root),
         .tags = try parseTags(allocator, root),
@@ -38,8 +38,8 @@ pub fn parseXml(backing_allocator: Allocator, root: *xml.Element) !ParseResult {
 }
 
 fn parseDeclarations(allocator: Allocator, root: *xml.Element) ![]registry.Declaration {
-    var types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
-    var commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
+    const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
+    const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
 
     const decl_upper_bound = types_elem.children.len + commands_elem.children.len;
     const decls = try allocator.alloc(registry.Declaration, decl_upper_bound);
@@ -181,7 +181,7 @@ fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !regis
         }
 
         if (member.getAttribute("optional")) |optionals| {
-            var optional_it = mem.split(u8, optionals, ",");
+            var optional_it = mem.splitScalar(u8, optionals, ',');
             if (optional_it.next()) |first_optional| {
                 members[i].is_optional = mem.eql(u8, first_optional, "true");
             } else {
@@ -198,7 +198,7 @@ fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !regis
     if (ty.getAttribute("structextends")) |extends| {
         const n_structs = std.mem.count(u8, extends, ",") + 1;
         maybe_extends = try allocator.alloc([]const u8, n_structs);
-        var struct_extends = std.mem.split(u8, extends, ",");
+        var struct_extends = std.mem.splitScalar(u8, extends, ',');
         var j: usize = 0;
         while (struct_extends.next()) |struct_extend| {
             maybe_extends.?[j] = struct_extend;
@@ -273,7 +273,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ registry.Poi
 
 fn parsePointerMeta(fields: Fields, type_info: *registry.TypeInfo, elem: *xml.Element) !void {
     if (elem.getAttribute("len")) |lens| {
-        var it = mem.split(u8, lens, ",");
+        var it = mem.splitScalar(u8, lens, ',');
         var current_type_info = type_info;
         while (current_type_info.* == .pointer) {
             // TODO: Check altlen
@@ -295,7 +295,7 @@ fn parsePointerMeta(fields: Fields, type_info: *registry.TypeInfo, elem: *xml.El
     }
 
     if (elem.getAttribute("optional")) |optionals| {
-        var it = mem.split(u8, optionals, ",");
+        var it = mem.splitScalar(u8, optionals, ',');
         var current_type_info = type_info;
         while (current_type_info.* == .pointer) {
             if (it.next()) |current_optional| {
@@ -423,7 +423,7 @@ fn splitCommaAlloc(allocator: Allocator, text: []const u8) ![][]const u8 {
     }
 
     const codes = try allocator.alloc([]const u8, n_codes);
-    var it = mem.split(u8, text, ",");
+    var it = mem.splitScalar(u8, text, ',');
     for (codes) |*code| {
         code.* = it.next().?;
     }
@@ -483,7 +483,7 @@ fn parseCommand(allocator: Allocator, elem: *xml.Element) !registry.Declaration 
 
             const old_error_codes = error_codes;
             error_codes = try allocator.alloc([]const u8, error_codes.len + 1);
-            mem.copy([]const u8, error_codes, old_error_codes);
+            mem.copyForwards([]const u8, error_codes, old_error_codes);
             error_codes[error_codes.len - 1] = code;
             allocator.free(old_error_codes);
             break;
@@ -906,7 +906,7 @@ fn parseExtension(allocator: Allocator, extension: *xml.Element) !registry.Exten
 }
 
 fn splitFeatureLevel(ver: []const u8, split: []const u8) !registry.FeatureLevel {
-    var it = mem.split(u8, ver, split);
+    var it = mem.splitSequence(u8, ver, split);
 
     const major = it.next() orelse return error.InvalidFeatureLevel;
     const minor = it.next() orelse return error.InvalidFeatureLevel;

@@ -32,7 +32,7 @@ fn getProcAddr(instance: xr.Instance, name: [*:0]const u8) !xr.PfnVoidFunction {
 
 pub fn main() !void {
     var name: [128]u8 = undefined;
-    std.mem.copy(u8, name[0..], "openxr-zig-test" ++ [_]u8{0});
+    std.mem.copyForwards(u8, name[0..], "openxr-zig-test" ++ [_]u8{0});
 
     const xrb = try BaseDispatch.load(c.xrGetInstanceProcAddr);
 

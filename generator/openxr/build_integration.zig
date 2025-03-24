@@ -64,7 +64,7 @@ pub const GenerateStep = struct {
     fn make(step: *Build.Step, progress: *std.Progress.Node) !void {
         _ = progress;
         const b = step.owner;
-        const self = @fieldParentPtr(GenerateStep, "step", step);
+        const self: GenerateStep = @fieldParentPtr("step", step);
         const cwd = std.fs.cwd();
 
         var man = b.cache.obtain();

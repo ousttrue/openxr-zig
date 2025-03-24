@@ -28,7 +28,7 @@ pub fn main() !void {
                 \\$OPENXR_SDK/x86_64/share/openxr/registry/xr.xml.
                 \\
                 \\
-                ++ usage,
+            ++ usage,
                 .{prog_name},
             );
             return;
@@ -74,7 +74,10 @@ pub fn main() !void {
         };
     }
 
-    cwd.writeFile(out_path, formatted) catch |err| {
+    cwd.writeFile(.{
+        .sub_path = out_path,
+        .data = formatted,
+    }) catch |err| {
         try stderr.writer().print("Error: Failed to write to output file '{s}' ({s})\n", .{ out_path, @errorName(err) });
         return;
     };

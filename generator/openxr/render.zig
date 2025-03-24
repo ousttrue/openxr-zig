@@ -28,10 +28,10 @@ const preamble =
     \\    return struct {
     \\        pub const IntType = Flags64;
     \\        pub fn toInt(self: FlagsType) IntType {
-    \\            return @bitCast(IntType, self);
+    \\            return @bitCast(self);
     \\        }
     \\        pub fn fromInt(flags: IntType) FlagsType {
-    \\            return @bitCast(FlagsType, flags);
+    \\            return @bitCast(flags);
     \\        }
     \\        pub fn merge(lhs: FlagsType, rhs: FlagsType) FlagsType {
     \\            return fromInt(toInt(lhs) | toInt(rhs));
@@ -54,18 +54,18 @@ const preamble =
     \\    return (@as(u64, major) << 48) | (@as(u64, minor) << 32) | patch;
     \\}
     \\pub fn versionMajor(version: u64) u16 {
-    \\    return @truncate(u16, version >> 48);
+    \\    return @truncate(version >> 48);
     \\}
-    \\pub fn versionMinor(version: u16) u10 {
-    \\    return @truncate(u16, version >> 32);
+    \\pub fn versionMinor(version: u16) u16 {
+    \\    return @truncate(version >> 32);
     \\}
     \\pub fn versionPatch(version: u64) u32 {
-    \\    return @truncate(u32, version);
+    \\    return @truncate(version);
     \\}
     \\
 ;
 
-const builtin_types = std.ComptimeStringMap([]const u8, .{
+const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "void", @typeName(void) },
     .{ "char", @typeName(u8) },
     .{ "float", @typeName(f32) },
@@ -82,7 +82,7 @@ const builtin_types = std.ComptimeStringMap([]const u8, .{
     .{ "int", @typeName(c_int) },
 });
 
-const foreign_types = std.ComptimeStringMap([]const u8, .{
+const foreign_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Display", "opaque {}" },
     .{ "VisualID", @typeName(c_uint) },
     .{ "Window", @typeName(c_ulong) },
@@ -104,7 +104,7 @@ const foreign_types = std.ComptimeStringMap([]const u8, .{
     .{ "PFN_vkGetInstanceProcAddr", "@import(\"vulkan\").PfnGetInstanceProcAddr" },
 });
 
-const initialized_types = std.ComptimeStringMap([]const u8, .{
+const initialized_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "XrVector2f", "0" },
     .{ "XrVector3f", "0" },
     .{ "XrVector4f", "0" },
@@ -372,7 +372,7 @@ fn Renderer(comptime WriterType: type) type {
         }
 
         fn classifyCommandDispatch(name: []const u8, command: reg.Command) CommandDispatchType {
-            const override_functions = std.ComptimeStringMap(CommandDispatchType, .{
+            const override_functions = std.StaticStringMap(CommandDispatchType).initComptime(.{
                 .{ "xrGetInstanceProcAddr", .base },
                 .{ "xrCreateInstance", .base },
                 .{ "xrEnumerateApiLayerProperties", .base },
@@ -644,23 +644,32 @@ fn Renderer(comptime WriterType: type) type {
             }
 
             if (!container.is_union) {
-                try self.writer.writeAll(
-                    \\    pub fn empty() @This() {
-                    \\        var value: @This() = undefined;
-                );
-                for (container.fields) |field| {
+                const have_next_or_type = for (container.fields) |field| {
                     if (mem.eql(u8, field.name, "next") or mem.eql(u8, field.name, "type")) {
-                        try self.writer.writeAll("value.");
-                        try self.writeIdentifierWithCase(.snake, field.name);
-                        try self.renderContainerDefaultField(container, name, field);
-                        try self.writer.writeAll(";\n");
+                        break true;
                     }
-                }
+                } else false;
 
-                try self.writer.writeAll(
-                    \\        return value;
-                    \\    }
-                );
+                if (have_next_or_type) {
+                    try self.writer.writeAll(
+                        \\    pub fn empty() @This() {
+                        \\        var value: @This() = undefined;
+                    );
+
+                    for (container.fields) |field| {
+                        if (mem.eql(u8, field.name, "next") or mem.eql(u8, field.name, "type")) {
+                            try self.writer.writeAll("value.");
+                            try self.writeIdentifierWithCase(.snake, field.name);
+                            try self.renderContainerDefaultField(container, name, field);
+                            try self.writer.writeAll(";\n");
+                        }
+                    }
+
+                    try self.writer.writeAll(
+                        \\        return value;
+                        \\    }
+                    );
+                }
             }
 
             try self.writer.writeAll("};\n");
@@ -892,34 +901,34 @@ fn Renderer(comptime WriterType: type) type {
                 \\    return struct {
                 \\        pub fn merge(lhs: CommandFlags, rhs: CommandFlags) CommandFlags {
                 \\            var result: CommandFlags = .{};
-                \\            inline for (@typeInfo(CommandFlags).Struct.fields) |field| {
+                \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
                 \\                @field(result, field.name) = @field(lhs, field.name) or @field(rhs, field.name);
                 \\            }
                 \\            return result;
                 \\        }
                 \\        pub fn intersect(lhs: CommandFlags, rhs: CommandFlags) CommandFlags {
                 \\            var result: CommandFlags = .{};
-                \\            inline for (@typeInfo(CommandFlags).Struct.fields) |field| {
+                \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
                 \\                @field(result, field.name) = @field(lhs, field.name) and @field(rhs, field.name);
                 \\            }
                 \\            return result;
                 \\        }
                 \\        pub fn complement(self: CommandFlags) CommandFlags {
                 \\            var result: CommandFlags = .{};
-                \\            inline for (@typeInfo(CommandFlags).Struct.fields) |field| {
+                \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
                 \\                @field(result, field.name) = !@field(self, field.name);
                 \\            }
                 \\            return result;
                 \\        }
                 \\        pub fn subtract(lhs: CommandFlags, rhs: CommandFlags) CommandFlags {
                 \\            var result: CommandFlags = .{};
-                \\            inline for (@typeInfo(CommandFlags).Struct.fields) |field| {
+                \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
                 \\                @field(result, field.name) = @field(lhs, field.name) and !@field(rhs, field.name);
                 \\            }
                 \\            return result;
                 \\        }
                 \\        pub fn contains(lhs: CommandFlags, rhs: CommandFlags) bool {
-                \\            inline for (@typeInfo(CommandFlags).Struct.fields) |field| {
+                \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
                 \\                if (!@field(lhs, field.name) and @field(rhs, field.name)) {
                 \\                    return false;
                 \\                }
@@ -1027,21 +1036,21 @@ fn Renderer(comptime WriterType: type) type {
                 \\            const Type = std.builtin.Type;
                 \\            const fields_len = fields_len: {{
                 \\                var fields_len = 0;
-                \\                for (@typeInfo({0s}CommandFlags).Struct.fields) |field| {{
-                \\                    fields_len += @boolToInt(@field(cmds, field.name));
+                \\                for (@typeInfo({0s}CommandFlags).@"struct".fields) |field| {{
+                \\                    fields_len += @intFromBool(@field(cmds, field.name));
                 \\                }}
                 \\                break :fields_len fields_len;
                 \\            }};
                 \\            var fields: [fields_len]Type.StructField = undefined;
                 \\            var i: usize = 0;
-                \\            for (@typeInfo({0s}CommandFlags).Struct.fields) |field| {{
+                \\            for (@typeInfo({0s}CommandFlags).@"struct".fields) |field| {{
                 \\                if (@field(cmds, field.name)) {{
                 \\                    const field_tag = std.enums.nameCast(std.meta.FieldEnum({0s}CommandFlags), field.name);
                 \\                    const PfnType = {0s}CommandFlags.CmdType(field_tag);
                 \\                    fields[i] = .{{
                 \\                        .name = {0s}CommandFlags.cmdName(field_tag),
                 \\                        .type = PfnType,
-                \\                        .default_value = null,
+                \\                        .default_value_ptr = null,
                 \\                        .is_comptime = false,
                 \\                        .alignment = @alignOf(PfnType),
                 \\                    }};
@@ -1049,8 +1058,8 @@ fn Renderer(comptime WriterType: type) type {
                 \\                }}
                 \\            }}
                 \\            break :blk @Type(.{{
-                \\                .Struct = .{{
-                \\                    .layout = .Auto,
+                \\                .@"struct" = .{{
+                \\                    .layout = .auto,
                 \\                    .fields = &fields,
                 \\                    .decls = &[_]std.builtin.Type.Declaration{{}},
                 \\                    .is_tuple = false,
@@ -1101,21 +1110,21 @@ fn Renderer(comptime WriterType: type) type {
                 \\pub fn load({[params]s}) error{{CommandLoadFailure}}!Self {{
                 \\    var self: Self = undefined;
                 \\    inline for (std.meta.fields(Dispatch)) |field| {{
-                \\        const name = @ptrCast([*:0]const u8, field.name ++ "\x00");
+                \\        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
                 \\        var cmd_ptr: PfnVoidFunction = undefined;
                 \\        const result: Result = loader({[first_arg]s}, name, &cmd_ptr);
                 \\        if (result != .success) return error.CommandLoadFailure;
-                \\        @field(self.dispatch, field.name) = @ptrCast(field.type, cmd_ptr);
+                \\        @field(self.dispatch, field.name) = @ptrCast(cmd_ptr);
                 \\    }}
                 \\    return self;
                 \\}}
                 \\pub fn loadNoFail({[params]s}) Self {{
                 \\    var self: Self = undefined;
                 \\    inline for (std.meta.fields(Dispatch)) |field| {{
-                \\        const name = @ptrCast([*:0]const u8, field.name ++ "\x00");
+                \\        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
                 \\        var cmd_ptr: PfnVoidFunction = undefined;
                 \\        if (loader({[first_arg]s}, name, &cmd_ptr)) {{
-                \\          @field(self.dispatch, field.name) = @ptrCast(field.type, cmd_ptr);
+                \\          @field(self.dispatch, field.name) = @ptrCast(cmd_ptr);
                 \\        }}
                 \\    }}
                 \\    return self;
