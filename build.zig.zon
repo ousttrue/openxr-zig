@@ -1,0 +1,28 @@
+.{
+    .name = .openxr_zig,
+    .version = "0.0.0",
+    .fingerprint = 0xb9c5875d96bd8f31, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{
+        // https://github.com/KhronosGroup/OpenXR-Docs/blob/main/CHANGELOG.Docs.md
+        .openxr1150 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.1.50.zip",
+            .hash = "N-V-__8AAO5dQwCcpym5ky3ZaxOeYp2OCvIcRT7izWcfa8Fa",
+        },
+        .openxr1034 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.34.zip",
+            .hash = "N-V-__8AAAfqNAAi14j9jD6zZzPY1_gGHxtTAt5kL5wPi7EV",
+        },
+        // 1.0.28 XR_EXT_debug_utils not work ?
+        // 1.0.27 XR_FB_eye_tracking_social not work ?
+        .openxr1027 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.26.zip",
+            .hash = "N-V-__8AAL6oKQDqRa1QLRa5zgRmgNTjBoMhAXd_5FcmMy1A",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
