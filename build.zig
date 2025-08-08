@@ -27,6 +27,12 @@ const LOADER_FLAGS = .{
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
+    const vulkan = b.dependency("vulkan_zig", .{
+        .registry = registry,
+    }).module("vulkan-zig");
+
     // const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
     const test_step = b.step("test", "Run all the tests");
 
@@ -55,6 +61,7 @@ pub fn build(b: *std.Build) void {
     const xr_zig_module = b.addModule("openxr-zig", .{
         .root_source_file = xr_zig,
     });
+    xr_zig_module.addImport("vulkan", vulkan);
 
     // Also install xr.zig, if passed.
 
@@ -71,6 +78,8 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(example_exe);
     example_exe.linkLibC();
+    example_exe.root_module.addImport("vulkan", vulkan);
+    link_glfw(b, example_exe);
 
     // example_exe.linkSystemLibrary("openxr_loader");
     //
@@ -100,4 +109,51 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("generator/index.zig"),
     });
     test_step.dependOn(&b.addRunArtifact(test_target).step);
+}
+
+const GLFW_SRCS = [_][]const u8{
+    "context.c",
+    "egl_context.c",
+    "init.c",
+    "input.c",
+    "monitor.c",
+    "null_init.c",
+    "null_joystick.c",
+    "null_monitor.c",
+    "null_window.c",
+    "osmesa_context.c",
+    "platform.c",
+    "vulkan.c",
+    "window.c",
+};
+
+const GLFW_SRCS_WINDOWS = [_][]const u8{
+    "wgl_context.c",
+    "win32_init.c",
+    "win32_joystick.c",
+    "win32_module.c",
+    "win32_monitor.c",
+    "win32_thread.c",
+    "win32_time.c",
+    "win32_window.c",
+};
+
+const GLFW_LIBS_WINDOWS = [_][]const u8{
+    "gdi32",
+    "user32",
+};
+
+fn link_glfw(b: *std.Build, exe: *std.Build.Step.Compile) void {
+    const glfw_dep = b.dependency("glfw", .{});
+    exe.addIncludePath(glfw_dep.path("include"));
+    exe.addCSourceFiles(.{
+        .root = glfw_dep.path("src"),
+        .files = &(GLFW_SRCS ++ GLFW_SRCS_WINDOWS),
+        .flags = &.{
+            "-D_GLFW_WIN32",
+        },
+    });
+    for (GLFW_LIBS_WINDOWS) |lib| {
+        exe.linkSystemLibrary(lib);
+    }
 }

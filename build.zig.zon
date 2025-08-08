@@ -19,6 +19,18 @@
             .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.26.zip",
             .hash = "N-V-__8AAL6oKQDqRa1QLRa5zgRmgNTjBoMhAXd_5FcmMy1A",
         },
+        .vulkan_headers = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.283.tar.gz",
+            .hash = "N-V-__8AAAkkoQGn5z1yoNVrwqZfnYmZp8AZ5CJgoHRMQI0c",
+        },
+        .vulkan_zig = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/c66bddee009a8c4b71082ab7af723ed885161650.tar.gz",
+            .hash = "vulkan-0.0.0-r7YtxwZVAwDbCFXX5GpnS436SfBec9INY0zq-2OQ2BUp",
+        },
+        .glfw = .{
+            .url = "https://github.com/glfw/glfw/archive/refs/tags/3.4.zip",
+            .hash = "N-V-__8AAL40TADEbrysYHBl-UIZO4KiG4chP8pLDVDINGH4",
+        },
     },
     .paths = .{
         "build.zig",
