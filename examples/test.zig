@@ -18,6 +18,7 @@ const xrInstanceDispatch = xr.InstanceWrapper(.{
     .getVulkanGraphicsRequirements2KHR = true,
     .createVulkanInstanceKHR = true,
     .getVulkanGraphicsDevice2KHR = true,
+    .createVulkanDeviceKHR = true,
 });
 
 var g_pfn: xr.PFN_vkGetInstanceProcAddr = undefined;
@@ -28,6 +29,27 @@ fn vkGetInstanceProcAddr(
     // std.log.debug("call: vkGetInstanceProcAddr: {}, {s}", .{ instance, p_name });
     // return g_pfn(instance, p_name);
     return c.glfwGetInstanceProcAddress(instance, p_name);
+}
+
+fn selectQueueFamily(
+    allocator: std.mem.Allocator,
+    vki: *const vk.InstanceWrapper,
+    vkPhysicalDevice: vk.PhysicalDevice,
+) !?u32 {
+    var queueFamilyCount: u32 = 0;
+    vki.getPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &queueFamilyCount, null);
+    std.log.debug("queueFamilyCount: {}", .{queueFamilyCount});
+    const queueFamilyProps = try allocator.alloc(vk.QueueFamilyProperties, queueFamilyCount);
+    defer allocator.free(queueFamilyProps);
+    vki.getPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &queueFamilyCount, @ptrCast(queueFamilyProps));
+    var queueFamilyIndex: ?u32 = null;
+    for (queueFamilyProps, 0..) |prop, i| {
+        std.log.debug("  [{}] graphics_bit={}", .{ i, prop.queue_flags.graphics_bit });
+        if (prop.queue_flags.graphics_bit) {
+            queueFamilyIndex = @intCast(i);
+        } else {}
+    }
+    return queueFamilyIndex;
 }
 
 pub fn main() !void {
@@ -93,8 +115,9 @@ pub fn main() !void {
 
     // VkInstance
     var vkInstance: vk.Instance = undefined;
-    var result: vk.Result = undefined;
-    try xri.createVulkanInstanceKHR(inst, &createInfo, &vkInstance, &result);
+    var vkResult: vk.Result = undefined;
+    try xri.createVulkanInstanceKHR(inst, &createInfo, &vkInstance, &vkResult);
+    std.debug.assert(vkResult == vk.Result.success);
     const vki = vk.InstanceWrapper.load(vkInstance, c.glfwGetInstanceProcAddress);
 
     // VkPhysicalDevice
@@ -107,7 +130,65 @@ pub fn main() !void {
     const physicalDeviceProps = vki.getPhysicalDeviceProperties(vkPhysicalDevice);
     std.log.debug("vulkan: physicalDeviceName: {s}", .{physicalDeviceProps.device_name});
 
-    // _ = try xri.createSession(inst, &.{
-    //     .system_id = system,
-    // });
+    // VkDevice
+    const queueFamilyIndex = try selectQueueFamily(std.heap.page_allocator, &vki, vkPhysicalDevice) orelse {
+        @panic("no queueFamilyIndex");
+    };
+
+    const queuePriorities = [1]f32{
+        0.0,
+    };
+    const queueInfo = [1]vk.DeviceQueueCreateInfo{
+        .{
+            .queue_family_index = queueFamilyIndex,
+            .queue_count = queuePriorities.len,
+            .p_queue_priorities = &queuePriorities,
+        },
+    };
+    //   VkPhysicalDeviceFeatures features{
+    //   // features.samplerAnisotropy = VK_TRUE;
+    // #ifndef ANDROID
+    //       // quest3 not work
+    //       .shaderStorageImageMultisample = VK_TRUE,
+    // #endif
+    //   };
+
+    const deviceInfo = vk.DeviceCreateInfo{
+        .queue_create_info_count = queueInfo.len,
+        .p_queue_create_infos = &queueInfo,
+        // .enabledLayerCount = static_cast<uint32_t>(instance.layers.size()),
+        // .ppEnabledLayerNames = instance.layers.data(),
+        // .enabledExtensionCount = static_cast<uint32_t>(device.extensions.size()),
+        // .ppEnabledExtensionNames = device.extensions.data(),
+        // .pEnabledFeatures = &features,
+    };
+
+    const deviceCreateInfo = xr.VulkanDeviceCreateInfoKHR{
+        .system_id = system,
+        .pfn_get_instance_proc_addr = c.glfwGetInstanceProcAddress,
+        .vulkan_physical_device = vkPhysicalDevice,
+        .vulkan_create_info = &deviceInfo,
+    };
+
+    var vkDevice: vk.Device = undefined;
+    try xri.createVulkanDeviceKHR(inst, &deviceCreateInfo, &vkDevice, &vkResult);
+    std.debug.assert(vkResult == vk.Result.success);
+    // const vkd = vk.DeviceWrapper.load(vkDevice, c.glfwGetInstanceProcAddress);
+
+    //
+    // xr session
+    //
+    const graphicsBindings = xr.GraphicsBindingVulkan2KHR{
+        .instance = vkInstance,
+        .physical_device = vkPhysicalDevice,
+        .device = vkDevice,
+        .queue_family_index = queueFamilyIndex,
+        .queue_index = 0,
+    };
+
+    const session = try xri.createSession(inst, &.{
+        .system_id = system,
+        .next = &graphicsBindings,
+    });
+    std.log.debug("xrSession: {}", .{session});
 }
