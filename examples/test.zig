@@ -5,6 +5,7 @@ const vk = @import("vulkan");
 const xr_helper = @import("xr_helper.zig");
 const SessionState = @import("SessionState.zig");
 const Renderer = @import("Renderer.zig");
+const Stereoscope = @import("Stereoscope.zig");
 
 fn selectQueueFamily(
     allocator: std.mem.Allocator,
@@ -13,7 +14,7 @@ fn selectQueueFamily(
 ) !?u32 {
     var queue_family_count: u32 = 0;
     vki.getPhysicalDeviceQueueFamilyProperties(vk_physical_device, &queue_family_count, null);
-    std.log.debug("queue_family_count: {}", .{queue_family_count});
+    std.log.debug("vk.QueueFamilyProperties[{}]", .{queue_family_count});
     const queue_family_props = try allocator.alloc(vk.QueueFamilyProperties, queue_family_count);
     defer allocator.free(queue_family_props);
     vki.getPhysicalDeviceQueueFamilyProperties(vk_physical_device, &queue_family_count, @ptrCast(queue_family_props));
@@ -84,7 +85,7 @@ pub fn main() !void {
     };
 
     //
-    // vulkan
+    // create vulkan by XrInstance [XR_KHR_vulkan_enable2]
     //
     const xr_vulkan_instance_create_info = xr.VulkanInstanceCreateInfoKHR{
         .system_id = xr_system_id,
@@ -168,15 +169,28 @@ pub fn main() !void {
     });
     std.log.debug("xrSession: {}", .{xr_session});
 
-    //
+    // space
+    const reference_space_create_info = xr.ReferenceSpaceCreateInfo{
+        .reference_space_type = .local,
+        .pose_in_reference_space = .{},
+    };
+    const app_space = try xri.createReferenceSpace(xr_session, &reference_space_create_info);
+    std.log.debug("xrSpace:{}", .{app_space});
+
+    const view_configuration_type = xr.ViewConfigurationType.primary_stereo;
+    var stereoscope = try Stereoscope.init(
+        &xri,
+        xr_instance,
+        xr_system_id,
+        xr_session,
+        view_configuration_type,
+    );
+
     // renderer
-    //
     var renderer = try Renderer.init();
     defer renderer.deinit();
 
-    //
     // xr session state manager
-    //
     var state = try SessionState.init(
         std.heap.page_allocator,
         &xri,
@@ -202,8 +216,17 @@ pub fn main() !void {
         const xr_result = try xri.beginFrame(xr_session, &frame_begin_info);
         std.debug.assert(xr_result == .success);
 
-        // render & composition
-        const layers = renderer.renderAndCompositLayers(frame_state);
+        const layers: []*const xr.CompositionLayerBaseHeader = &.{};
+        if (frame_state.should_render != 0) {
+            if (try stereoscope.locate(
+                app_space,
+                frame_state.predicted_display_time,
+            )) {
+                // HMD tracking enabled
+                // render
+            }
+        }
+
         const frame_end_info = xr.FrameEndInfo{
             .display_time = frame_state.predicted_display_time,
             .environment_blend_mode = .@"opaque",

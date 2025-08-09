@@ -19,10 +19,15 @@ pub const XrInstanceDispatch = xr.InstanceWrapper(.{
     .getVulkanGraphicsDevice2KHR = true,
     .createVulkanDeviceKHR = true,
     // session
-    .enumerateSwapchainFormats = true,
     .beginSession = true,
     .endSession = true,
     .waitFrame = true,
     .beginFrame = true,
     .endFrame = true,
+    // view
+    .createReferenceSpace = true,
+    .enumerateViewConfigurationViews = true,
+    .locateViews = true,
+    // swapchain
+    .enumerateSwapchainFormats = true,
 });
