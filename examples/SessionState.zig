@@ -19,10 +19,6 @@ pub fn init(
     xr_session: xr.Session,
     xr_view_configuration_type: xr.ViewConfigurationType,
 ) !@This() {
-    // Select a swapchain format.
-    const swapchain_format_count = try xri.enumerateSwapchainFormats(xr_session, 0, null);
-    std.log.debug("swapchain formats: {}", .{swapchain_format_count});
-
     return .{
         .allocator = allocator,
         .xri = xri,

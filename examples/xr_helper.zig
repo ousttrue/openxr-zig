@@ -30,4 +30,9 @@ pub const XrInstanceDispatch = xr.InstanceWrapper(.{
     .locateViews = true,
     // swapchain
     .enumerateSwapchainFormats = true,
+    .createSwapchain = true,
+    .enumerateSwapchainImages = true,
+    .waitSwapchainImage = true,
+    .acquireSwapchainImage = true,
+    .releaseSwapchainImage = true,
 });

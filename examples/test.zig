@@ -6,6 +6,7 @@ const xr_helper = @import("xr_helper.zig");
 const SessionState = @import("SessionState.zig");
 const Renderer = @import("Renderer.zig");
 const Stereoscope = @import("Stereoscope.zig");
+const Swapchain = @import("Swapchain.zig");
 
 fn selectQueueFamily(
     allocator: std.mem.Allocator,
@@ -26,6 +27,38 @@ fn selectQueueFamily(
         } else {}
     }
     return queue_family_index;
+}
+
+fn selectSwapchainFormat(
+    allocator: std.mem.Allocator,
+    xri: *const xr_helper.XrInstanceDispatch,
+    xr_session: xr.Session,
+) !vk.Format {
+    // Select a swapchain format.
+    const swapchain_format_count = try xri.enumerateSwapchainFormats(xr_session, 0, null);
+
+    const swapchain_formats_i64 = try allocator.alloc(i64, swapchain_format_count);
+    defer allocator.free(swapchain_formats_i64);
+    _ = try xri.enumerateSwapchainFormats(xr_session, swapchain_format_count, @ptrCast(swapchain_formats_i64));
+
+    // List of supported color swapchain formats.
+    const candidates = [_]vk.Format{
+        vk.Format.b8g8r8a8_srgb,
+        vk.Format.r8g8b8a8_srgb,
+        vk.Format.b8g8r8a8_unorm,
+        vk.Format.r8g8b8a8_unorm,
+    };
+
+    for (swapchain_formats_i64) |format| {
+        const vkformat = @as(vk.Format, @enumFromInt(@as(i32, @intCast(format))));
+        for (candidates) |candidate| {
+            if (vkformat == candidate) {
+                std.log.debug("swapchain format => {s}", .{@tagName(vkformat)});
+                return vkformat;
+            }
+        }
+    }
+    @panic("not found");
 }
 
 pub fn main() !void {
@@ -186,6 +219,21 @@ pub fn main() !void {
         view_configuration_type,
     );
 
+    // swapchain
+    const format = try selectSwapchainFormat(std.heap.page_allocator, &xri, xr_session);
+    var swapchains = [2]Swapchain{
+        try Swapchain.init(std.heap.page_allocator, &xri, xr_session, format, stereoscope.view_configurations[0]),
+        try Swapchain.init(std.heap.page_allocator, &xri, xr_session, format, stereoscope.view_configurations[1]),
+    };
+    defer swapchains[0].deinit();
+    defer swapchains[1].deinit();
+
+    var composition_layer_projection_views = [2]xr.CompositionLayerProjectionView{
+        xr.CompositionLayerProjectionView.empty(),
+        xr.CompositionLayerProjectionView.empty(),
+    };
+    const environment_blend_mode: xr.EnvironmentBlendMode = .@"opaque";
+
     // renderer
     var renderer = try Renderer.init();
     defer renderer.deinit();
@@ -216,23 +264,47 @@ pub fn main() !void {
         const xr_result = try xri.beginFrame(xr_session, &frame_begin_info);
         std.debug.assert(xr_result == .success);
 
-        const layers: []*const xr.CompositionLayerBaseHeader = &.{};
+        // composition
+        var frame_end_info = xr.FrameEndInfo{
+            .environment_blend_mode = environment_blend_mode,
+            .display_time = frame_state.predicted_display_time,
+            .layer_count = 0,
+            .layers = null,
+        };
+
+        var p_composition_layer_base_header: ?*const xr.CompositionLayerBaseHeader = null;
+
+        // render CompositionLayerProjection
+        var composition_layer_projection = xr.CompositionLayerProjection.empty();
         if (frame_state.should_render != 0) {
             if (try stereoscope.locate(
                 app_space,
                 frame_state.predicted_display_time,
             )) {
                 // HMD tracking enabled
-                // render
+                for (&stereoscope.views, 0..) |*view, i| {
+                    // CompositionLayerProjection Left/Right
+
+                    // get swapchain...
+                    var swapchain = swapchains[i];
+                    const acquired = try swapchain.acquireSwapchain(view);
+                    composition_layer_projection_views[i] = acquired.projection_view;
+
+                    // TODO: update VkImage
+
+                    try swapchain.endSwapchain();
+                }
+
+                // composit
+                composition_layer_projection.space = app_space;
+                composition_layer_projection.view_count = 2;
+                composition_layer_projection.views = &composition_layer_projection_views;
+                frame_end_info.layer_count = 1;
+                p_composition_layer_base_header = @ptrCast(&composition_layer_projection);
+                frame_end_info.layers = @ptrCast(&p_composition_layer_base_header);
             }
         }
 
-        const frame_end_info = xr.FrameEndInfo{
-            .display_time = frame_state.predicted_display_time,
-            .environment_blend_mode = .@"opaque",
-            .layer_count = @intCast(layers.len),
-            .layers = @ptrCast(layers),
-        };
         try xri.endFrame(xr_session, &frame_end_info);
     }
 }

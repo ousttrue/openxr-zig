@@ -10,16 +10,6 @@ pub fn init() !@This()
 pub fn deinit(_: *@This())void{
 }
 
-// const swapchain_formats_i64 = try allocator.alloc(i64, swapchain_format_count);
-// defer allocator.free(swapchain_formats_i64);
-// _ = try xri.enumerateSwapchainFormats(xr_session, swapchain_format_count, @ptrCast(swapchain_formats_i64));
-// var swapchain_formats_vkformat = try allocator.alloc(vk.Format, swapchain_format_count);
-// for (swapchain_formats_i64, 0..) |format, i| {
-//     swapchain_formats_vkformat[i] = @as(vk.Format, @enumFromInt(@as(i32, @intCast(format))));
-//     std.log.debug("  [{}] {}", .{ i, swapchain_formats_vkformat[i] });
-// }
-// .swapchain_formats = swapchain_formats_vkformat,
-
 pub fn renderAndCompositLayers(_: *@This(), frame_state: xr.FrameState) []*const xr.CompositionLayerBaseHeader {
     if (frame_state.should_render == 0) {
         return &.{};
