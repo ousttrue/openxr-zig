@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
     // a file source to the generated code with `.addOutputArg("xr.zig")`
     const generator_exe = b.addExecutable(.{
         .name = "openxr-zig-generator",
-        .root_source_file = b.path("generator/main.zig"),
+        .root_source_file = b.path("generator/test.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) void {
 
     const example_exe = b.addExecutable(.{
         .name = "example",
-        .root_source_file = b.path("examples/test.zig"),
+        .root_source_file = b.path("examples/main.zig"),
         .target = target,
         .optimize = optimize,
     });

@@ -1,25 +1,26 @@
+const c = @import("c.zig");
 const std = @import("std");
 const vk = @import("vulkan");
 
 instance: vk.Instance,
-vki: *const vk.InstanceWrapper,
+vki: vk.InstanceWrapper,
 device: vk.Device,
-vkd: *const vk.DeviceWrapper,
+vkd: vk.DeviceWrapper,
 queue_family_index: u32,
 queue: vk.Queue,
 pool: vk.CommandPool,
 
 pub fn init(
     vk_instance: vk.Instance,
-    vki: *const vk.InstanceWrapper,
     vk_device: vk.Device,
-    vkd: *const vk.DeviceWrapper,
     queue_family_index: u32,
 ) !@This() {
+    const vki = vk.InstanceWrapper.load(vk_instance, c.glfwGetInstanceProcAddress);
+    const vkd = vk.DeviceWrapper.load(vk_device, vki.dispatch.vkGetDeviceProcAddr.?);
     return @This(){
         .instance = vk_instance,
-        .vki = vki,
         .device = vk_device,
+        .vki = vki,
         .vkd = vkd,
         .queue_family_index = queue_family_index,
         .queue = vkd.getDeviceQueue(vk_device, queue_family_index, 0),
