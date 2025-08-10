@@ -61,6 +61,11 @@ fn selectSwapchainFormat(
     @panic("not found");
 }
 
+fn timeToColor(nano: i64) [4]f32 {
+    const s = std.math.sin(@as(f64, @floatFromInt(nano)) / std.time.ns_per_s * std.math.pi);
+    return [4]f32{ @floatCast((s + 1) / 2.0), 0, 0, 1 };
+}
+
 pub fn main() !void {
     if (c.glfwInit() == 0) {
         @panic("OOP");
@@ -235,7 +240,8 @@ pub fn main() !void {
     const environment_blend_mode: xr.EnvironmentBlendMode = .@"opaque";
 
     // renderer
-    var renderer = try Renderer.init();
+    const vkd = vk.DeviceWrapper.load(vk_device, vki.dispatch.vkGetDeviceProcAddr.?);
+    var renderer = try Renderer.init(vk_instance, &vki, vk_device, &vkd, queue_family_index);
     defer renderer.deinit();
 
     // xr session state manager
@@ -281,6 +287,9 @@ pub fn main() !void {
                 app_space,
                 frame_state.predicted_display_time,
             )) {
+                // scene update
+                const color = timeToColor(frame_state.predicted_display_time);
+
                 // HMD tracking enabled
                 for (&stereoscope.views, 0..) |*view, i| {
                     // CompositionLayerProjection Left/Right
@@ -290,7 +299,8 @@ pub fn main() !void {
                     const acquired = try swapchain.acquireSwapchain(view);
                     composition_layer_projection_views[i] = acquired.projection_view;
 
-                    // TODO: update VkImage
+                    // render
+                    try renderer.render(acquired.image.image, .{ .float_32 = color });
 
                     try swapchain.endSwapchain();
                 }
