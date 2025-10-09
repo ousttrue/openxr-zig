@@ -467,7 +467,7 @@ fn parseFnPtrSuffix(allocator: Allocator, xctok: *XmlCTokenizer, return_type: Ty
     // There is no good way to estimate the number of parameters beforehand.
     // Fortunately, there are usually a relatively low number of parameters to a function pointer,
     // so an ArrayList backed by an arena allocator is good enough.
-    var params = std.ArrayList(registry.Command.Param).init(allocator);
+    var params = std.array_list.Managed(registry.Command.Param).init(allocator);
     try params.append(.{
         .name = first_param.name.?,
         .param_type = first_param.decl_type,

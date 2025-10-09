@@ -143,7 +143,7 @@ pub const Generator = struct {
         try merger.merge();
     }
 
-    fn render(self: *Generator, writer: anytype) !void {
+    fn render(self: *Generator, writer: std.io.Writer) !void {
         try renderRegistry(writer, self.arena.allocator(), &self.registry, &self.id_renderer);
     }
 };
@@ -152,7 +152,7 @@ pub const Generator = struct {
 /// and the resulting binding is written to `writer`. `allocator` will be used to allocate temporary
 /// internal datastructures - mostly via an ArenaAllocator, but sometimes a hashmap uses this allocator
 /// directly.
-pub fn generate(allocator: Allocator, spec_xml: []const u8, writer: anytype) !void {
+pub fn generate(allocator: Allocator, spec_xml: []const u8, writer: std.io.Writer) !void {
     const spec = xml.parse(allocator, spec_xml) catch |err| switch (err) {
         error.InvalidDocument,
         error.UnexpectedEof,

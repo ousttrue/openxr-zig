@@ -1,0 +1,7 @@
+.{
+    .name = .openxr_zig,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.1",
+    .paths = .{""},
+    .fingerprint = 0xb9c5875dce848634,
+}

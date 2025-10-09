@@ -2,6 +2,8 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
+pub const Error = std.io.Writer.Error || error{WriteFailed} || error{OutOfMemory};
+
 pub fn isZigPrimitiveType(name: []const u8) bool {
     if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
         for (name[1..]) |c| {
@@ -52,12 +54,12 @@ pub fn isZigPrimitiveType(name: []const u8) bool {
     return false;
 }
 
-pub fn writeIdentifier(writer: anytype, id: []const u8) !void {
+pub fn writeIdentifier(writer: *std.io.Writer, id: []const u8) Error!void {
     // https://github.com/ziglang/zig/issues/2897
     if (isZigPrimitiveType(id)) {
-        try writer.print("@\"{}\"", .{std.zig.fmtEscapes(id)});
+        try writer.print("@\"{f}\"", .{std.zig.fmtString(id)});
     } else {
-        try writer.print("{}", .{std.zig.fmtId(id)});
+        try writer.print("{f}", .{std.zig.fmtId(id)});
     }
 }
 
@@ -126,12 +128,12 @@ pub const SegmentIterator = struct {
 
 pub const IdRenderer = struct {
     tags: []const []const u8,
-    text_cache: std.ArrayList(u8),
+    text_cache: std.array_list.Managed(u8),
 
     pub fn init(allocator: Allocator, tags: []const []const u8) IdRenderer {
         return .{
             .tags = tags,
-            .text_cache = std.ArrayList(u8).init(allocator),
+            .text_cache = std.array_list.Managed(u8).init(allocator),
         };
     }
 
@@ -196,13 +198,18 @@ pub const IdRenderer = struct {
         }
     }
 
-    pub fn renderFmt(self: *IdRenderer, out: anytype, comptime fmt: []const u8, args: anytype) !void {
+    pub fn renderFmt(
+        self: *IdRenderer,
+        out: *std.io.Writer,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) Error!void {
         self.text_cache.items.len = 0;
         try std.fmt.format(self.text_cache.writer(), fmt, args);
         try writeIdentifier(out, self.text_cache.items);
     }
 
-    pub fn renderWithCase(self: *IdRenderer, out: anytype, case_style: CaseStyle, id: []const u8) !void {
+    pub fn renderWithCase(self: *IdRenderer, out: *std.io.Writer, case_style: CaseStyle, id: []const u8) !void {
         const tag = self.getAuthorTag(id);
         // The trailing underscore doesn't need to be removed here as its removed by the SegmentIterator.
         const adjusted_id = if (tag) |name| id[0 .. id.len - name.len] else id;
