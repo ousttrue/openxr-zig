@@ -20,6 +20,9 @@ pub const Element = struct {
     attributes: []Attribute = &.{},
     children: []Content = &.{},
 
+    line: usize,
+    column: usize,
+
     pub fn getAttribute(self: Element, attrib_name: []const u8) ?[]const u8 {
         for (self.attributes) |child| {
             if (mem.eql(u8, child.name, attrib_name)) {
@@ -361,9 +364,16 @@ fn parseEqAttrValue(parser: *Parser, alloc: Allocator) ![]const u8 {
     return try parseAttrValue(parser, alloc);
 }
 
-fn parseNameNoDupe(parser: *Parser) ![]const u8 {
+const Token = struct {
+    line: usize,
+    column: usize,
+    slice: []const u8,
+};
+fn parseNameNoDupe(parser: *Parser) !Token {
     // XML's spec on names is very long, so to make this easier
     // we just take any character that is not special and not whitespace
+    const line = parser.line;
+    const column = parser.column;
     const begin = parser.offset;
 
     while (parser.peek()) |ch| {
@@ -377,7 +387,11 @@ fn parseNameNoDupe(parser: *Parser) ![]const u8 {
     const end = parser.offset;
     if (begin == end) return error.InvalidName;
 
-    return parser.source[begin..end];
+    return .{
+        .line = line,
+        .column = column,
+        .slice = parser.source[begin..end],
+    };
 }
 
 fn parseCharData(parser: *Parser, alloc: Allocator) !?[]const u8 {
@@ -416,7 +430,7 @@ fn parseAttr(parser: *Parser, alloc: Allocator) !?Attribute {
     const value = try parseAttrValue(parser, alloc);
 
     const attr = Attribute{
-        .name = try alloc.dupe(u8, name),
+        .name = try alloc.dupe(u8, name.slice),
         .value = value,
     };
     return attr;
@@ -473,7 +487,7 @@ fn parseElement(parser: *Parser, alloc: Allocator, comptime kind: ElementKind) !
                 }
 
                 const closing_tag = try parseNameNoDupe(parser);
-                if (!mem.eql(u8, tag, closing_tag)) {
+                if (!mem.eql(u8, tag.slice, closing_tag.slice)) {
                     return error.NonMatchingClosingTag;
                 }
 
@@ -485,9 +499,11 @@ fn parseElement(parser: *Parser, alloc: Allocator, comptime kind: ElementKind) !
 
     const element = try alloc.create(Element);
     element.* = .{
-        .tag = try alloc.dupe(u8, tag),
+        .tag = try alloc.dupe(u8, tag.slice),
         .attributes = try attributes.toOwnedSlice(),
         .children = try children.toOwnedSlice(),
+        .line = tag.line,
+        .column = tag.column,
     };
     return element;
 }
@@ -544,8 +560,9 @@ test "xml: parse prolog" {
 
     {
         var parser = Parser.init("<?xmla version='aa'?>");
-        try testing.expectEqual(@as(?*Element, null), try parseElement(&parser, a, .xml_decl));
-        try testing.expectEqual(@as(?u8, '<'), parser.peek());
+        const decl = try parseElement(&parser, a, .xml_decl);
+        try testing.expectEqualSlices(u8, decl.?.tag, "xmla");
+        try testing.expectEqualSlices(u8, "aa", decl.?.getAttribute("version").?);
     }
 
     {

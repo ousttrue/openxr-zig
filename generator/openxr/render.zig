@@ -180,14 +180,14 @@ pub const Renderer = struct {
         instance,
     };
 
-    writer: std.io.Writer,
+    writer: *std.io.Writer,
     allocator: Allocator,
     registry: *const reg.Registry,
     id_renderer: *IdRenderer,
     declarations_by_name: std.StringHashMap(*const reg.DeclarationType),
     structure_types: std.StringHashMap(void),
 
-    fn init(writer: std.io.Writer, allocator: Allocator, registry: *const reg.Registry, id_renderer: *IdRenderer) !Self {
+    fn init(writer: *std.io.Writer, allocator: Allocator, registry: *const reg.Registry, id_renderer: *IdRenderer) !Self {
         var declarations_by_name = std.StringHashMap(*const reg.DeclarationType).init(allocator);
         errdefer declarations_by_name.deinit();
 
@@ -227,15 +227,15 @@ pub const Renderer = struct {
     }
 
     fn writeIdentifier(self: *Self, id: []const u8) !void {
-        try id_render.writeIdentifier(&self.writer, id);
+        try id_render.writeIdentifier(self.writer, id);
     }
 
     fn writeIdentifierWithCase(self: *Self, case: CaseStyle, id: []const u8) !void {
-        try self.id_renderer.renderWithCase(&self.writer, case, id);
+        try self.id_renderer.renderWithCase(self.writer, case, id);
     }
 
     fn writeIdentifierFmt(self: *Self, comptime fmt: []const u8, args: anytype) id_render.Error!void {
-        try self.id_renderer.renderFmt(&self.writer, fmt, args);
+        try self.id_renderer.renderFmt(self.writer, fmt, args);
     }
 
     fn extractEnumFieldName(self: Self, enum_name: []const u8, field_name: []const u8) ![]const u8 {
@@ -1382,7 +1382,7 @@ pub const Renderer = struct {
     }
 };
 
-pub fn render(writer: std.io.Writer, allocator: Allocator, registry: *const reg.Registry, id_renderer: *IdRenderer) !void {
+pub fn render(writer: *std.io.Writer, allocator: Allocator, registry: *const reg.Registry, id_renderer: *IdRenderer) !void {
     var renderer = try Renderer.init(writer, allocator, registry, id_renderer);
     defer renderer.deinit();
     try renderer.render();

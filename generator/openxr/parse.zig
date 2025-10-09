@@ -51,37 +51,40 @@ fn parseDeclarations(allocator: Allocator, root: *xml.Element) ![]registry.Decla
     return decls[0..count];
 }
 
+fn parseType(allocator: Allocator, ty: *xml.Element) !?registry.Declaration {
+    if (ty.getAttribute("category")) |category| {
+        if (mem.eql(u8, category, "bitmask")) {
+            return try parseBitmaskType(ty);
+        } else if (mem.eql(u8, category, "handle")) {
+            return try parseHandleType(ty);
+        } else if (mem.eql(u8, category, "basetype")) {
+            return try parseBaseType(allocator, ty);
+        } else if (mem.eql(u8, category, "struct")) {
+            return try parseContainer(allocator, ty, false);
+        } else if (mem.eql(u8, category, "union")) {
+            return try parseContainer(allocator, ty, true);
+        } else if (mem.eql(u8, category, "funcpointer")) {
+            return try parseFuncPointer(allocator, ty);
+        } else if (mem.eql(u8, category, "enum")) {
+            if (try parseEnumAlias(ty)) |decl| {
+                return decl;
+            }
+        }
+    } else {
+        return try parseForeigntype(ty);
+    }
+    return null;
+}
+
 fn parseTypes(allocator: Allocator, out: []registry.Declaration, types_elem: *xml.Element) !usize {
     var i: usize = 0;
     var it = types_elem.findChildrenByTag("type");
     while (it.next()) |ty| {
-        out[i] = blk: {
-            const category = ty.getAttribute("category") orelse {
-                break :blk try parseForeigntype(ty);
-            };
-
-            if (mem.eql(u8, category, "bitmask")) {
-                break :blk try parseBitmaskType(ty);
-            } else if (mem.eql(u8, category, "handle")) {
-                break :blk try parseHandleType(ty);
-            } else if (mem.eql(u8, category, "basetype")) {
-                break :blk try parseBaseType(allocator, ty);
-            } else if (mem.eql(u8, category, "struct")) {
-                break :blk try parseContainer(allocator, ty, false);
-            } else if (mem.eql(u8, category, "union")) {
-                break :blk try parseContainer(allocator, ty, true);
-            } else if (mem.eql(u8, category, "funcpointer")) {
-                break :blk try parseFuncPointer(allocator, ty);
-            } else if (mem.eql(u8, category, "enum")) {
-                break :blk (try parseEnumAlias(ty)) orelse continue;
-            }
-
-            continue;
-        };
-
-        i += 1;
+        if (try parseType(allocator, ty)) |decl| {
+            out[i] = decl;
+            i += 1;
+        }
     }
-
     return i;
 }
 

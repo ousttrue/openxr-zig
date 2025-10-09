@@ -1,88 +1,119 @@
 const std = @import("std");
-const generator = @import("openxr/generator.zig");
-
-const usage = "Usage: {s} [-h|--help] <spec xml path> <output zig source>\n";
+const xml = @import("xml.zig");
+const Generator = @import("openxr/generator.zig").Generator;
+const parseXml = @import("openxr/parse.zig").parseXml;
+const Args = @import("Args.zig");
 
 pub fn main() !void {
+    const args = try Args.init(std.os.argv);
+
     var stderr_buf: [1024]u8 = undefined;
     var stderr = std.fs.File.stderr().writer(&stderr_buf);
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var args = try std.process.argsWithAllocator(allocator);
-    const prog_name = args.next() orelse return error.ExecutableNameMissing;
-
-    var maybe_xml_path: ?[]const u8 = null;
-    var maybe_out_path: ?[]const u8 = null;
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            @setEvalBranchQuota(2000);
-            try stderr.interface.print(
-                \\Utility to generate a Zig binding from the OpenXR XML API registry.
-                \\
-                \\The most recent OpenXR XML API registry can be obtained from
-                \\https://github.com/KhronosGroup/OpenXR-Docs/blob/master/xml/xr.xml,
-                \\and the most recent LunarG OpenXR SDK version can be found at
-                \\$OPENXR_SDK/x86_64/share/openxr/registry/xr.xml.
-                \\
-                \\
-            ++ usage,
-                .{prog_name},
-            );
-            return;
-        } else if (maybe_xml_path == null) {
-            maybe_xml_path = arg;
-        } else if (maybe_out_path == null) {
-            maybe_out_path = arg;
-        } else {
-            try stderr.interface.print("Error: Superficial argument '{s}'\n", .{arg});
-            return;
-        }
-    }
-
-    const xml_path = maybe_xml_path orelse {
-        try stderr.interface.print("Error: Missing required argument <spec xml path>\n" ++ usage, .{prog_name});
-        return;
-    };
-
-    const out_path = maybe_out_path orelse {
-        try stderr.interface.print("Error: Missing required argument <output zig source>\n" ++ usage, .{prog_name});
-        return;
-    };
-
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.detectLeaks();
     const cwd = std.fs.cwd();
-    const xml_src = cwd.readFileAlloc(allocator, xml_path, std.math.maxInt(usize)) catch |err| {
-        try stderr.interface.print("Error: Failed to open input file '{s}' ({s})\n", .{ xml_path, @errorName(err) });
+    const xml_src = cwd.readFileAlloc(
+        allocator,
+        args.xml_path,
+        std.math.maxInt(usize),
+    ) catch |err| {
+        try stderr.interface.print(
+            "Error: Failed to open input file '{s}' ({s})\n",
+            .{ args.xml_path, @errorName(err) },
+        );
         return;
     };
+    defer allocator.free(xml_src);
 
-    var out_buffer = std.array_list.Managed(u8).init(allocator);
-    var buf: [1024]u8 = undefined;
-    try generator.generate(allocator, xml_src, out_buffer.writer().adaptToNewApi(&buf).new_interface);
-    try out_buffer.append(0);
+    const doc = xml.parse(allocator, xml_src) catch |err| switch (err) {
+        error.InvalidDocument,
+        error.UnexpectedEof,
+        error.UnexpectedCharacter,
+        error.IllegalCharacter,
+        error.InvalidEntity,
+        error.InvalidName,
+        error.InvalidStandaloneValue,
+        error.NonMatchingClosingTag,
+        error.UnclosedComment,
+        error.UnclosedValue,
+        => return error.InvalidXml,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer doc.deinit();
 
-    const src = out_buffer.items[0 .. out_buffer.items.len - 1 :0];
-    const tree = try std.zig.Ast.parse(allocator, src, .zig);
+    var parsed = try parseXml(allocator, doc.root);
+    defer parsed.deinit();
 
-    var formatted = std.Io.Writer.Allocating.init(allocator);
-    defer formatted.deinit();
-    try tree.render(allocator, &formatted.writer, .{});
+    var gen = Generator.init(parsed.arena.allocator(), parsed.registry) catch |err| switch (err) {
+        error.InvalidXml,
+        error.InvalidCharacter,
+        error.Overflow,
+        error.InvalidFeatureLevel,
+        error.InvalidSyntax,
+        error.InvalidTag,
+        error.MissingTypeIdentifier,
+        error.UnexpectedCharacter,
+        error.UnexpectedEof,
+        error.UnexpectedToken,
+        error.InvalidRegistry,
+        => return error.InvalidRegistry,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    // defer gen.deinit();
+    gen.removePromotedExtensions();
+    try gen.mergeEnumFields();
 
-    if (std.fs.path.dirname(out_path)) |dir| {
-        cwd.makePath(dir) catch |err| {
-            try stderr.interface.print("Error: Failed to create output directory '{s}' ({s})\n", .{ dir, @errorName(err) });
-            return;
-        };
-    }
+    // var out_buffer = std.array_list.Managed(u8).init(allocator);
+    // defer out_buffer.deinit();
+    // var buf: [1024]u8 = undefined;
+    // var adapter = out_buffer.writer().adaptToNewApi(&buf);
+    // var writer = &adapter.new_interface;
+
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    var writer = &out.writer;
+
+    gen.render(writer) catch |err| switch (err) {
+        error.InvalidApiConstant,
+        error.InvalidConstantExpr,
+        error.InvalidRegistry,
+        error.UnexpectedCharacter,
+        => return error.InvalidRegistry,
+        else => |others| return others,
+    };
+    try writer.writeByte(0);
+    try writer.flush();
+
+    const slice = try out.toOwnedSlice();
+    const src: [:0]u8 = @ptrCast(std.mem.sliceTo(slice, 0));
+    defer allocator.free(src);
+
+    // var tree = try std.zig.Ast.parse(allocator, src, .zig);
+    // defer tree.deinit(allocator);
+    // for (tree.errors) |e| {
+    //     std.log.debug("{s}", .{@errorName(e)});
+    // }
+    // var formatted = std.Io.Writer.Allocating.init(allocator);
+    // defer formatted.deinit();
+    // try tree.render(allocator, &formatted.writer, .{});
+    // if (std.fs.path.dirname(args.out_path)) |dir| {
+    //     cwd.makePath(dir) catch |err| {
+    //         try stderr.interface.print("Error: Failed to create output directory '{s}' ({s})\n", .{ dir, @errorName(err) });
+    //         return;
+    //     };
+    // }
 
     cwd.writeFile(.{
-        .sub_path = out_path,
-        .data = try formatted.toOwnedSlice(),
+        .sub_path = args.out_path,
+        // .data = try formatted.toOwnedSlice(),
+        .data = src,
     }) catch |err| {
-        try stderr.interface.print("Error: Failed to write to output file '{s}' ({s})\n", .{ out_path, @errorName(err) });
+        try stderr.interface.print(
+            "Error: Failed to write to output file '{s}' ({s})\n",
+            .{ args.out_path, @errorName(err) },
+        );
         return;
     };
 }

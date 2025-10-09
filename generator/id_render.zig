@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const registry = @import("openxr/registry.zig");
 
 pub const Error = std.io.Writer.Error || error{WriteFailed} || error{OutOfMemory};
 
@@ -130,7 +131,11 @@ pub const IdRenderer = struct {
     tags: []const []const u8,
     text_cache: std.array_list.Managed(u8),
 
-    pub fn init(allocator: Allocator, tags: []const []const u8) IdRenderer {
+    pub fn init(allocator: Allocator, registry_tags: []const registry.Tag) IdRenderer {
+        const tags = allocator.alloc([]const u8, registry_tags.len) catch @panic("OOM");
+        for (tags, registry_tags) |*tag, registry_tag| {
+            tag.* = registry_tag.name;
+        }
         return .{
             .tags = tags,
             .text_cache = std.array_list.Managed(u8).init(allocator),

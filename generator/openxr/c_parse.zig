@@ -657,7 +657,7 @@ test "parseTypedef" {
     defer arena.deinit();
 
     var xctok = XmlCTokenizer.init(document.root);
-    const decl = try parseTypedef(&arena.allocator, &xctok, false);
+    const decl = try parseTypedef(arena.allocator(), &xctok, false);
 
     try testing.expectEqualSlices(u8, "pythons", decl.name);
     const array = decl.decl_type.typedef.array;

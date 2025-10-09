@@ -1,8 +1,6 @@
 const std = @import("std");
 const reg = @import("registry.zig");
-const xml = @import("../xml.zig");
 const renderRegistry = @import("render.zig").render;
-const parseXml = @import("parse.zig").parseXml;
 const IdRenderer = @import("../id_render.zig").IdRenderer;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -95,28 +93,19 @@ const EnumFieldMerger = struct {
 };
 
 pub const Generator = struct {
-    arena: std.heap.ArenaAllocator,
+    allocator: std.mem.Allocator,
     registry: reg.Registry,
     id_renderer: IdRenderer,
 
-    fn init(allocator: Allocator, spec: *xml.Element) !Generator {
-        const result = try parseXml(allocator, spec);
-
-        const tags = try allocator.alloc([]const u8, result.registry.tags.len);
-        for (tags, result.registry.tags) |*tag, registry_tag| tag.* = registry_tag.name;
-
+    pub fn init(allocator: std.mem.Allocator, registry: reg.Registry) !Generator {
         return Generator{
-            .arena = result.arena,
-            .registry = result.registry,
-            .id_renderer = IdRenderer.init(allocator, tags),
+            .allocator = allocator,
+            .registry = registry,
+            .id_renderer = IdRenderer.init(allocator, registry.tags),
         };
     }
 
-    fn deinit(self: Generator) void {
-        self.arena.deinit();
-    }
-
-    fn removePromotedExtensions(self: *Generator) void {
+    pub fn removePromotedExtensions(self: *Generator) void {
         var write_index: usize = 0;
         for (self.registry.extensions) |ext| {
             if (ext.promoted_to == .none) {
@@ -138,62 +127,12 @@ pub const Generator = struct {
     }
 
     // Solve `registry.declarations` according to `registry.extensions` and `registry.features`.
-    fn mergeEnumFields(self: *Generator) !void {
-        var merger = EnumFieldMerger.init(self.arena.allocator(), &self.registry);
+    pub fn mergeEnumFields(self: *Generator) !void {
+        var merger = EnumFieldMerger.init(self.allocator, &self.registry);
         try merger.merge();
     }
 
-    fn render(self: *Generator, writer: std.io.Writer) !void {
-        try renderRegistry(writer, self.arena.allocator(), &self.registry, &self.id_renderer);
+    pub fn render(self: *Generator, writer: *std.io.Writer) !void {
+        try renderRegistry(writer, self.allocator, &self.registry, &self.id_renderer);
     }
 };
-
-/// Main function for generating the OpenXR bindings. xr.xml is to be provided via `spec_xml`,
-/// and the resulting binding is written to `writer`. `allocator` will be used to allocate temporary
-/// internal datastructures - mostly via an ArenaAllocator, but sometimes a hashmap uses this allocator
-/// directly.
-pub fn generate(allocator: Allocator, spec_xml: []const u8, writer: std.io.Writer) !void {
-    const spec = xml.parse(allocator, spec_xml) catch |err| switch (err) {
-        error.InvalidDocument,
-        error.UnexpectedEof,
-        error.UnexpectedCharacter,
-        error.IllegalCharacter,
-        error.InvalidEntity,
-        error.InvalidName,
-        error.InvalidStandaloneValue,
-        error.NonMatchingClosingTag,
-        error.UnclosedComment,
-        error.UnclosedValue,
-        => return error.InvalidXml,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    defer spec.deinit();
-
-    var gen = Generator.init(allocator, spec.root) catch |err| switch (err) {
-        error.InvalidXml,
-        error.InvalidCharacter,
-        error.Overflow,
-        error.InvalidFeatureLevel,
-        error.InvalidSyntax,
-        error.InvalidTag,
-        error.MissingTypeIdentifier,
-        error.UnexpectedCharacter,
-        error.UnexpectedEof,
-        error.UnexpectedToken,
-        error.InvalidRegistry,
-        => return error.InvalidRegistry,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    defer gen.deinit();
-
-    gen.removePromotedExtensions();
-    try gen.mergeEnumFields();
-    gen.render(writer) catch |err| switch (err) {
-        error.InvalidApiConstant,
-        error.InvalidConstantExpr,
-        error.InvalidRegistry,
-        error.UnexpectedCharacter,
-        => return error.InvalidRegistry,
-        else => |others| return others,
-    };
-}
