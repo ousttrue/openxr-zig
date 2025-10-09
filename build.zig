@@ -47,4 +47,13 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(&b.addRunArtifact(test_target).step);
+
+    // const generated = b.addLibrary(.{
+    //     .name = "generated",
+    //     .root_module = b.addModule("generated", .{
+    //         .root_source_file = b.path("zig-out/src/xr.zig"),
+    //         .target = target,
+    //     }),
+    // });
+    // b.installArtifact(generated);
 }

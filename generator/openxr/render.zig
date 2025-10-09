@@ -14,7 +14,7 @@ const preamble =
     \\const builtin = @import("builtin");
     \\const root = @import("root");
     \\
-    \\pub const openxr_call_conv: std.builtin.CallingConvention = if (builtin.os.tag == .windows and builtin.cpu.arch == .i386)
+    \\pub const openxr_call_conv: std.builtin.CallingConvention = if (builtin.os.tag == .windows and builtin.cpu.arch == .x86)
     \\        .Stdcall
     \\    else if (builtin.abi == .android and (builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb()) and builtin.Target.arm.featureSetHas(builtin.cpu.features, .has_v7) and builtin.cpu.arch.ptrBitWidth() == 32)
     \\        // On Android 32-bit ARM targets, OpenXR functions use the "hardfloat"
@@ -23,7 +23,7 @@ const preamble =
     \\        // as it does by default when compiling for the armeabi-v7a NDK ABI.
     \\        .AAPCSVFP
     \\    else
-    \\        .C;
+    \\        .c;
     \\pub fn FlagsMixin(comptime FlagsType: type) type {
     \\    return struct {
     \\        pub const IntType = Flags64;
@@ -787,7 +787,7 @@ pub const Renderer = struct {
                 try self.writer.writeAll(":bool = false, ");
             }
         }
-        try self.writer.writeAll("pub usingnamespace FlagsMixin(");
+        try self.writer.writeAll("//pub usingnamespace FlagsMixin(");
         try self.renderName(name);
         try self.writer.writeAll(");\n};\n");
     }
@@ -1016,7 +1016,7 @@ pub const Renderer = struct {
         try self.writer.writeAll("    };\n}");
 
         try self.writer.print(
-            \\    pub usingnamespace CommandFlagsMixin({s}CommandFlags);
+            \\  //pub usingnamespace CommandFlagsMixin({s}CommandFlags);
             \\}};
             \\
         , .{name});

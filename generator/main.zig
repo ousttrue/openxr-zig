@@ -90,25 +90,27 @@ pub fn main() !void {
     const src: [:0]u8 = @ptrCast(std.mem.sliceTo(slice, 0));
     defer allocator.free(src);
 
-    // var tree = try std.zig.Ast.parse(allocator, src, .zig);
-    // defer tree.deinit(allocator);
-    // for (tree.errors) |e| {
-    //     std.log.debug("{s}", .{@errorName(e)});
-    // }
-    // var formatted = std.Io.Writer.Allocating.init(allocator);
-    // defer formatted.deinit();
-    // try tree.render(allocator, &formatted.writer, .{});
-    // if (std.fs.path.dirname(args.out_path)) |dir| {
-    //     cwd.makePath(dir) catch |err| {
-    //         try stderr.interface.print("Error: Failed to create output directory '{s}' ({s})\n", .{ dir, @errorName(err) });
-    //         return;
-    //     };
-    // }
+    var tree = try std.zig.Ast.parse(allocator, src, .zig);
+    defer tree.deinit(allocator);
+    for (tree.errors) |e| {
+        std.log.debug("{s}", .{@tagName(e.tag)});
+    }
+    var formatted = std.Io.Writer.Allocating.init(allocator);
+    defer formatted.deinit();
+    try tree.render(allocator, &formatted.writer, .{});
+    if (std.fs.path.dirname(args.out_path)) |dir| {
+        cwd.makePath(dir) catch |err| {
+            try stderr.interface.print("Error: Failed to create output directory '{s}' ({s})\n", .{ dir, @errorName(err) });
+            return;
+        };
+    }
 
+    const zig_src = try formatted.toOwnedSlice();
+    defer allocator.free(zig_src);
     cwd.writeFile(.{
         .sub_path = args.out_path,
-        // .data = try formatted.toOwnedSlice(),
-        .data = src,
+        .data = zig_src,
+        // .data = src,
     }) catch |err| {
         try stderr.interface.print(
             "Error: Failed to write to output file '{s}' ({s})\n",
