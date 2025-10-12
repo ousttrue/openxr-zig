@@ -27,26 +27,16 @@ pub fn main() !void {
     };
     defer allocator.free(xml_src);
 
-    const doc = xml.parse(allocator, xml_src) catch |err| switch (err) {
-        error.InvalidDocument,
-        error.UnexpectedEof,
-        error.UnexpectedCharacter,
-        error.IllegalCharacter,
-        error.InvalidEntity,
-        error.InvalidName,
-        error.InvalidStandaloneValue,
-        error.NonMatchingClosingTag,
-        error.UnclosedComment,
-        error.UnclosedValue,
-        => return error.InvalidXml,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    defer doc.deinit();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var parser = xml.Parser.init(arena.allocator(), xml_src);
+    const doc = try parser.parse();
 
-    var parsed = try parseXml(allocator, doc.root);
+    var parsed = try parseXml(arena.allocator(), doc.root);
     defer parsed.deinit();
+    // std.log.debug("{f}", .{parsed});
 
-    var gen = Generator.init(parsed.arena.allocator(), parsed.registry) catch |err| switch (err) {
+    var gen = Generator.init(arena.allocator(), parsed.registry) catch |err| switch (err) {
         error.InvalidXml,
         error.InvalidCharacter,
         error.Overflow,
