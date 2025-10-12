@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const registry = @import("openxr/registry.zig");
+const registry = @import("registry.zig");
 
 pub const Error = std.io.Writer.Error || error{WriteFailed} || error{OutOfMemory};
 

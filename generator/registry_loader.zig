@@ -1,6 +1,6 @@
 const std = @import("std");
 const registry = @import("registry.zig");
-const xml = @import("../xml.zig");
+const xml = @import("xml.zig");
 const cparse = @import("c_parse.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;

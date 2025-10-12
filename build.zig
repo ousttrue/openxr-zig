@@ -1,7 +1,4 @@
 const std = @import("std");
-const xrgen = @import("generator/index.zig");
-
-const XrGenerateStep = xrgen.XrGenerateStep;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -41,7 +38,7 @@ pub fn build(b: *std.Build) void {
 
     const test_target = b.addTest(.{
         .root_module = b.addModule("test", .{
-            .root_source_file = b.path("generator/index.zig"),
+            .root_source_file = b.path("generator/main.zig"),
             .target = target,
         }),
     });

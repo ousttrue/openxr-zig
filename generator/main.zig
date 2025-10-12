@@ -3,9 +3,9 @@ const std = @import("std");
 const xml = @import("xml.zig");
 const IdRenderer = @import("IdRenderer.zig");
 
-const EnumFieldMerger = @import("openxr/EnumFieldMerger.zig");
-const renderRegistry = @import("openxr/render.zig").render;
-const loadXml = @import("openxr/registry_loader.zig").loadXml;
+const EnumFieldMerger = @import("EnumFieldMerger.zig");
+const renderRegistry = @import("render.zig").render;
+const loadXml = @import("registry_loader.zig").loadXml;
 
 const Args = @import("Args.zig");
 

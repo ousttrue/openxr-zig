@@ -1,6 +1,6 @@
 const std = @import("std");
 const reg = @import("registry.zig");
-const IdRenderer = @import("../IdRenderer.zig");
+const IdRenderer = @import("IdRenderer.zig");
 const cparse = @import("c_parse.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
