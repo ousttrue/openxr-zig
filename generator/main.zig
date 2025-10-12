@@ -4,7 +4,7 @@ const xml = @import("xml.zig");
 const IdRenderer = @import("IdRenderer.zig");
 
 const EnumFieldMerger = @import("EnumFieldMerger.zig");
-const renderRegistry = @import("render.zig").render;
+const Renderer = @import("Renderer.zig");
 const loadXml = @import("registry_loader.zig").loadXml;
 
 const Args = @import("Args.zig");
@@ -37,10 +37,6 @@ pub fn main() !void {
     var parser = xml.Parser.init(arena.allocator(), xml_src);
     const doc = try parser.parse();
 
-    // var arena = ArenaAllocator.init(backing_allocator);
-    // errdefer arena.deinit();
-    // const allocator = arena.allocator();
-
     var registry = try loadXml(arena.allocator(), doc.root);
     // std.log.debug("{f}", .{parsed});
 
@@ -57,21 +53,19 @@ pub fn main() !void {
     }
 
     // Solve `registry.declarations` according to `registry.extensions` and `registry.features`.
-    // try gen.mergeEnumFields();
     var merger = EnumFieldMerger.init(arena.allocator(), &registry);
     try merger.merge();
 
     var out = std.Io.Writer.Allocating.init(allocator);
     defer out.deinit();
     var writer = &out.writer;
-    // try gen.render(&out.writer);
-    // pub fn render(self: *Generator, writer: *std.io.Writer) !void {
 
-    var id_renderer = IdRenderer.init(arena.allocator(), registry.tags);
-    try renderRegistry(writer, arena.allocator(), &registry, &id_renderer);
+    var renderer = try Renderer.init(writer, arena.allocator(), &registry);
+    defer renderer.deinit();
+    try renderer.render();
+
     try writer.writeByte(0);
     try writer.flush();
-    // }
 
     const slice = try out.toOwnedSlice();
     const src: [:0]u8 = @ptrCast(std.mem.sliceTo(slice, 0));

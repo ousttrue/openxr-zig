@@ -8,15 +8,6 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 
 const api_constants_name = "API Constants";
 
-// pub const ParseResult = struct {
-//     arena: ArenaAllocator,
-//     registry: registry.Registry,
-//
-//     pub fn deinit(self: ParseResult) void {
-//         self.arena.deinit();
-//     }
-// };
-
 pub fn loadXml(allocator: Allocator, root: *xml.Element) !registry.Registry {
     return registry.Registry{
         .decls = try parseDeclarations(allocator, root),
