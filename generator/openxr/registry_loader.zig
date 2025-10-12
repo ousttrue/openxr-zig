@@ -8,32 +8,22 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 
 const api_constants_name = "API Constants";
 
-pub const ParseResult = struct {
-    arena: ArenaAllocator,
-    registry: registry.Registry,
+// pub const ParseResult = struct {
+//     arena: ArenaAllocator,
+//     registry: registry.Registry,
+//
+//     pub fn deinit(self: ParseResult) void {
+//         self.arena.deinit();
+//     }
+// };
 
-    pub fn deinit(self: ParseResult) void {
-        self.arena.deinit();
-    }
-};
-
-pub fn parseXml(backing_allocator: Allocator, root: *xml.Element) !ParseResult {
-    var arena = ArenaAllocator.init(backing_allocator);
-    errdefer arena.deinit();
-
-    const allocator = arena.allocator();
-
-    const reg = registry.Registry{
+pub fn loadXml(allocator: Allocator, root: *xml.Element) !registry.Registry {
+    return registry.Registry{
         .decls = try parseDeclarations(allocator, root),
         .api_constants = try parseApiConstants(allocator, root),
         .tags = try parseTags(allocator, root),
         .features = try parseFeatures(allocator, root),
         .extensions = try parseExtensions(allocator, root),
-    };
-
-    return ParseResult{
-        .arena = arena,
-        .registry = reg,
     };
 }
 

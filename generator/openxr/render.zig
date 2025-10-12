@@ -1,11 +1,10 @@
 const std = @import("std");
 const reg = @import("registry.zig");
-const id_render = @import("../id_render.zig");
+const IdRenderer = @import("../IdRenderer.zig");
 const cparse = @import("c_parse.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const CaseStyle = id_render.CaseStyle;
-const IdRenderer = id_render.IdRenderer;
+const CaseStyle = IdRenderer.CaseStyle;
 
 const preamble =
     \\// This file is generated from the Khronos OpenXR XML API registry by openxr-zig
@@ -227,14 +226,14 @@ pub const Renderer = struct {
     }
 
     fn writeIdentifier(self: *Self, id: []const u8) !void {
-        try id_render.writeIdentifier(self.writer, id);
+        try IdRenderer.writeIdentifier(self.writer, id);
     }
 
     fn writeIdentifierWithCase(self: *Self, case: CaseStyle, id: []const u8) !void {
         try self.id_renderer.renderWithCase(self.writer, case, id);
     }
 
-    fn writeIdentifierFmt(self: *Self, comptime fmt: []const u8, args: anytype) id_render.Error!void {
+    fn writeIdentifierFmt(self: *Self, comptime fmt: []const u8, args: anytype) IdRenderer.Error!void {
         try self.id_renderer.renderFmt(self.writer, fmt, args);
     }
 
@@ -243,8 +242,8 @@ pub const Renderer = struct {
             "XrType"
         else
             self.id_renderer.stripAuthorTag(enum_name);
-        var enum_it = id_render.SegmentIterator.init(adjusted_enum_name);
-        var field_it = id_render.SegmentIterator.init(field_name);
+        var enum_it = IdRenderer.SegmentIterator.init(adjusted_enum_name);
+        var field_it = IdRenderer.SegmentIterator.init(field_name);
 
         while (true) {
             const rest = field_it.rest();
@@ -481,7 +480,7 @@ pub const Renderer = struct {
         }
     }
 
-    fn renderTypeInfo(self: *Self, type_info: reg.TypeInfo) id_render.Error!void {
+    fn renderTypeInfo(self: *Self, type_info: reg.TypeInfo) IdRenderer.Error!void {
         switch (type_info) {
             .name => |name| try self.renderName(name),
             .command_ptr => |command_ptr| try self.renderCommandPtr(command_ptr, true),
@@ -490,7 +489,7 @@ pub const Renderer = struct {
         }
     }
 
-    fn renderName(self: *Self, name: []const u8) id_render.Error!void {
+    fn renderName(self: *Self, name: []const u8) IdRenderer.Error!void {
         if (builtin_types.get(name)) |zig_name| {
             try self.writer.writeAll(zig_name);
             return;
@@ -522,7 +521,7 @@ pub const Renderer = struct {
         try self.writeIdentifier(name);
     }
 
-    fn renderCommandPtr(self: *Self, command_ptr: reg.Command, optional: bool) id_render.Error!void {
+    fn renderCommandPtr(self: *Self, command_ptr: reg.Command, optional: bool) IdRenderer.Error!void {
         if (optional) {
             try self.writer.writeByte('?');
         }
@@ -554,7 +553,7 @@ pub const Renderer = struct {
         try self.renderTypeInfo(command_ptr.return_type.*);
     }
 
-    fn renderPointer(self: *Self, pointer: reg.Pointer) id_render.Error!void {
+    fn renderPointer(self: *Self, pointer: reg.Pointer) IdRenderer.Error!void {
         const child_is_void = pointer.child.* == .name and mem.eql(u8, pointer.child.name, "void");
 
         if (pointer.is_optional) {
@@ -1130,7 +1129,7 @@ pub const Renderer = struct {
     }
 
     fn derefName(name: []const u8) []const u8 {
-        var it = id_render.SegmentIterator.init(name);
+        var it = IdRenderer.SegmentIterator.init(name);
         return if (mem.eql(u8, it.next().?, "p"))
             name[1..]
         else

@@ -1,7 +1,12 @@
 const std = @import("std");
+
 const xml = @import("xml.zig");
-const Generator = @import("openxr/generator.zig").Generator;
-const parseXml = @import("openxr/parse.zig").parseXml;
+const IdRenderer = @import("IdRenderer.zig");
+
+const EnumFieldMerger = @import("openxr/EnumFieldMerger.zig");
+const renderRegistry = @import("openxr/render.zig").render;
+const loadXml = @import("openxr/registry_loader.zig").loadXml;
+
 const Args = @import("Args.zig");
 
 pub fn main() !void {
@@ -32,49 +37,41 @@ pub fn main() !void {
     var parser = xml.Parser.init(arena.allocator(), xml_src);
     const doc = try parser.parse();
 
-    var parsed = try parseXml(arena.allocator(), doc.root);
-    defer parsed.deinit();
+    // var arena = ArenaAllocator.init(backing_allocator);
+    // errdefer arena.deinit();
+    // const allocator = arena.allocator();
+
+    var registry = try loadXml(arena.allocator(), doc.root);
     // std.log.debug("{f}", .{parsed});
 
-    var gen = Generator.init(arena.allocator(), parsed.registry) catch |err| switch (err) {
-        error.InvalidXml,
-        error.InvalidCharacter,
-        error.Overflow,
-        error.InvalidFeatureLevel,
-        error.InvalidSyntax,
-        error.InvalidTag,
-        error.MissingTypeIdentifier,
-        error.UnexpectedCharacter,
-        error.UnexpectedEof,
-        error.UnexpectedToken,
-        error.InvalidRegistry,
-        => return error.InvalidRegistry,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    // defer gen.deinit();
-    gen.removePromotedExtensions();
-    try gen.mergeEnumFields();
+    // gen.removePromotedExtensions();
+    {
+        var write_index: usize = 0;
+        for (registry.extensions) |ext| {
+            if (ext.promoted_to == .none) {
+                registry.extensions[write_index] = ext;
+                write_index += 1;
+            }
+        }
+        registry.extensions.len = write_index;
+    }
 
-    // var out_buffer = std.array_list.Managed(u8).init(allocator);
-    // defer out_buffer.deinit();
-    // var buf: [1024]u8 = undefined;
-    // var adapter = out_buffer.writer().adaptToNewApi(&buf);
-    // var writer = &adapter.new_interface;
+    // Solve `registry.declarations` according to `registry.extensions` and `registry.features`.
+    // try gen.mergeEnumFields();
+    var merger = EnumFieldMerger.init(arena.allocator(), &registry);
+    try merger.merge();
 
     var out = std.Io.Writer.Allocating.init(allocator);
     defer out.deinit();
     var writer = &out.writer;
+    // try gen.render(&out.writer);
+    // pub fn render(self: *Generator, writer: *std.io.Writer) !void {
 
-    gen.render(writer) catch |err| switch (err) {
-        error.InvalidApiConstant,
-        error.InvalidConstantExpr,
-        error.InvalidRegistry,
-        error.UnexpectedCharacter,
-        => return error.InvalidRegistry,
-        else => |others| return others,
-    };
+    var id_renderer = IdRenderer.init(arena.allocator(), registry.tags);
+    try renderRegistry(writer, arena.allocator(), &registry, &id_renderer);
     try writer.writeByte(0);
     try writer.flush();
+    // }
 
     const slice = try out.toOwnedSlice();
     const src: [:0]u8 = @ptrCast(std.mem.sliceTo(slice, 0));

@@ -1,5 +1,5 @@
-pub const generateXr = @import("openxr/generator.zig").generate;
-pub const XrGenerateStep = @import("openxr/build_integration.zig").GenerateStep;
+pub const EnumFieldMerger  = @import("openxr/EnumFieldMerger.zig");
+// pub const XrGenerateStep = @import("openxr/build_integration.zig").GenerateStep;
 
 test "main" {
     _ = @import("xml.zig");
