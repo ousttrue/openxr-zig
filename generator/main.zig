@@ -60,9 +60,9 @@ pub fn main() !void {
     defer out.deinit();
     var writer = &out.writer;
 
-    var renderer = try Renderer.init(writer, arena.allocator(), &registry);
+    var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();
-    try renderer.render();
+    try renderer.render(writer);
 
     try writer.writeByte(0);
     try writer.flush();
