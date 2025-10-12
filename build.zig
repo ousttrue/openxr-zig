@@ -25,14 +25,19 @@ pub fn build(b: *std.Build) void {
     if (xr_xml_path) |path| {
         const generate_cmd = b.addRunArtifact(generator_exe);
         generate_cmd.addArg(path);
-        const xr_zig = generate_cmd.addOutputFileArg("xr.zig");
+        const xr_zig_dir = generate_cmd.addOutputDirectoryArg("xr");
         const xr_module = b.addModule("xr", .{
-            .root_source_file = xr_zig,
+            .root_source_file = xr_zig_dir.path(b, "xr.zig"),
         });
         b.modules.put("openxr", xr_module) catch @panic("OOM");
 
         // Also install xr.zig, if passed.
-        const xr_zig_install_step = b.addInstallFile(xr_zig, "src/xr.zig");
+        const xr_zig_install_step = b.addInstallDirectory(.{
+            .source_dir = xr_zig_dir,
+            .install_dir = .{ .prefix = void{} },
+            .install_subdir = "src/xr",
+        });
+        // xr_zig_install_step.step.dependOn(&generate_cmd.step);
         b.getInstallStep().dependOn(&xr_zig_install_step.step);
     }
 

@@ -183,6 +183,7 @@ registry: *const reg.Registry,
 id_renderer: IdRenderer,
 declarations_by_name: std.StringHashMap(*const reg.DeclarationType),
 structure_types: std.StringHashMap(void),
+moduleFileMap: std.StringHashMap(*std.array_list.Managed(u8)),
 
 pub fn init(allocator: Allocator, registry: *const reg.Registry) !Self {
     var declarations_by_name = std.StringHashMap(*const reg.DeclarationType).init(allocator);
@@ -212,13 +213,20 @@ pub fn init(allocator: Allocator, registry: *const reg.Registry) !Self {
     return Self{
         .allocator = allocator,
         .registry = registry,
-        .id_renderer = IdRenderer.init(allocator, registry.tags),
+        .id_renderer = .init(allocator, registry.tags),
         .declarations_by_name = declarations_by_name,
         .structure_types = structure_types,
+        .moduleFileMap = .init(allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
+    var it = self.moduleFileMap.iterator();
+    while (it.next()) |entry| {
+        entry.value_ptr.*.deinit();
+        self.allocator.destroy(entry.value_ptr.*);
+    }
+    self.moduleFileMap.deinit();
     self.declarations_by_name.deinit();
 }
 
@@ -1361,7 +1369,23 @@ fn renderResultAsErrorName(self: *Self, writer: *std.Io.Writer, name: []const u8
     }
 }
 
-pub fn render(self: *Self, writer: *std.Io.Writer) !void {
+fn getOrCreateBuffer(self: *@This(), name: []const u8) !*std.array_list.Managed(u8) {
+    if (self.moduleFileMap.get(name)) |buf| {
+        return buf;
+    } else {
+        const buf = try self.allocator.create(std.array_list.Managed(u8));
+        buf.* = .init(self.allocator);
+        try self.moduleFileMap.put(name, buf);
+        return buf;
+    }
+}
+
+pub fn render(self: *Self) !void {
+    var list = try self.getOrCreateBuffer("xr.zig");
+    var buf: [1024]u8 = undefined;
+    var w = list.writer().adaptToNewApi(&buf);
+    var writer = &w.new_interface;
+
     try writer.writeAll(preamble);
 
     for (self.registry.api_constants) |api_constant| {
@@ -1375,4 +1399,7 @@ pub fn render(self: *Self, writer: *std.Io.Writer) !void {
     try self.renderCommandPtrs(writer);
     try self.renderExtensionInfo(writer);
     try self.renderWrappers(writer);
+
+    try writer.writeByte(0);
+    try writer.flush();
 }

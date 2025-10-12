@@ -18,8 +18,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.detectLeaks();
-    const cwd = std.fs.cwd();
-    const xml_src = cwd.readFileAlloc(
+    const xml_src = std.fs.cwd().readFileAlloc(
         allocator,
         args.xml_path,
         std.math.maxInt(usize),
@@ -56,21 +55,24 @@ pub fn main() !void {
     var merger = EnumFieldMerger.init(arena.allocator(), &registry);
     try merger.merge();
 
-    var out = std.Io.Writer.Allocating.init(allocator);
-    defer out.deinit();
-    var writer = &out.writer;
-
     var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();
-    try renderer.render(writer);
+    try renderer.render();
 
-    try writer.writeByte(0);
-    try writer.flush();
+    const out_dir = try std.fs.cwd().openDir(args.out_path, .{ .access_sub_paths = true });
+    var it = renderer.moduleFileMap.iterator();
+    while (it.next()) |entry| {
+        const content = try formatZigSource(allocator, entry.value_ptr.*.items);
+        defer allocator.free(content);
+        writeFile(out_dir, entry.key_ptr.*, content) catch |e| {
+            std.log.err("  error => {s}", .{@errorName(e)});
+            @panic("writeFile");
+        };
+    }
+}
 
-    const slice = try out.toOwnedSlice();
-    const src: [:0]u8 = @ptrCast(std.mem.sliceTo(slice, 0));
-    defer allocator.free(src);
-
+fn formatZigSource(allocator: std.mem.Allocator, content: []u8) ![]const u8 {
+    const src: [:0]u8 = @ptrCast(std.mem.sliceTo(content, 0));
     var tree = try std.zig.Ast.parse(allocator, src, .zig);
     defer tree.deinit(allocator);
     for (tree.errors) |e| {
@@ -79,24 +81,19 @@ pub fn main() !void {
     var formatted = std.Io.Writer.Allocating.init(allocator);
     defer formatted.deinit();
     try tree.render(allocator, &formatted.writer, .{});
-    if (std.fs.path.dirname(args.out_path)) |dir| {
-        cwd.makePath(dir) catch |err| {
-            try stderr.interface.print("Error: Failed to create output directory '{s}' ({s})\n", .{ dir, @errorName(err) });
-            return;
+    const zig_src = try formatted.toOwnedSlice();
+    return zig_src;
+}
+
+fn writeFile(cwd: std.fs.Dir, out_path: []const u8, content: []const u8) !void {
+    if (std.fs.path.dirname(out_path)) |dir| {
+        cwd.access(dir, .{}) catch {
+            std.log.debug("mkdir: {s}", .{dir});
+            try cwd.makePath(dir);
         };
     }
-
-    const zig_src = try formatted.toOwnedSlice();
-    defer allocator.free(zig_src);
-    cwd.writeFile(.{
-        .sub_path = args.out_path,
-        .data = zig_src,
-        // .data = src,
-    }) catch |err| {
-        try stderr.interface.print(
-            "Error: Failed to write to output file '{s}' ({s})\n",
-            .{ args.out_path, @errorName(err) },
-        );
-        return;
-    };
+    try cwd.writeFile(.{
+        .sub_path = out_path,
+        .data = content,
+    });
 }
