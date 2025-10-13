@@ -5,6 +5,8 @@ const XmlCTokenizer = @import("XmlCTokenizer.zig");
 pub const ApiConstant = @import("ApiConstant.zig");
 const FeatureLevel = @import("FeatureLevel.zig");
 pub const Enum = @import("Enum.zig");
+const Extension = @import("Extension.zig");
+pub const Require = @import("Require.zig");
 
 pub const Declaration = struct {
     name: []const u8,
@@ -116,43 +118,6 @@ pub const Feature = struct {
     requires: []Require,
 };
 
-pub const Extension = struct {
-    pub const ExtensionType = enum {
-        instance,
-        device,
-    };
-
-    pub const Promotion = union(enum) {
-        none,
-        feature: FeatureLevel,
-        extension: []const u8,
-    };
-
-    name: []const u8,
-    number: u31,
-    version: u32,
-    extension_type: ?ExtensionType,
-    depends: []const []const u8, // Other extensions
-    promoted_to: Promotion,
-    platform: ?[]const u8,
-    required_feature_level: ?FeatureLevel,
-    requires: []Require,
-};
-
-pub const Require = struct {
-    pub const EnumExtension = struct {
-        extends: []const u8,
-        extnumber: ?u31,
-        field: Enum.Field,
-    };
-
-    extends: []EnumExtension,
-    types: []const []const u8,
-    commands: []const []const u8,
-    required_feature_level: ?FeatureLevel,
-    required_extension: ?[]const u8,
-};
-
 decls: []Declaration,
 api_constants: []ApiConstant,
 tags: []Tag,
@@ -181,7 +146,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
         .api_constants = try ApiConstant.parse(allocator, doc.root),
         .tags = try parseTags(allocator, doc.root),
         .features = try parseFeatures(allocator, doc.root),
-        .extensions = try parseExtensions(allocator, doc.root),
+        .extensions = try Extension.parseExtensions(allocator, doc.root),
     };
 
     // gen.removePromotedExtensions();
@@ -513,17 +478,6 @@ fn parseEnums(allocator: std.mem.Allocator, out: []Declaration, root: *xml.Eleme
     return i;
 }
 
-fn parseCommands(allocator: std.mem.Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
-    var i: usize = 0;
-    var it = commands_elem.findChildrenByTag("command");
-    while (it.next()) |elem| {
-        out[i] = try parseCommand(allocator, elem);
-        i += 1;
-    }
-
-    return i;
-}
-
 fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
     var n_codes: usize = 1;
     for (text) |c| {
@@ -537,6 +491,17 @@ fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8
     }
 
     return codes;
+}
+
+fn parseCommands(allocator: std.mem.Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
+    var i: usize = 0;
+    var it = commands_elem.findChildrenByTag("command");
+    while (it.next()) |elem| {
+        out[i] = try parseCommand(allocator, elem);
+        i += 1;
+    }
+
+    return i;
 }
 
 fn parseCommand(allocator: std.mem.Allocator, elem: *xml.Element) !Declaration {
@@ -664,220 +629,13 @@ fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !Feature {
     var i: usize = 0;
     var it = feature.findChildrenByTag("require");
     while (it.next()) |require| {
-        requires[i] = try parseRequire(allocator, require, null);
+        requires[i] = try Require.parse(allocator, require, null);
         i += 1;
     }
 
     return Feature{
         .name = name,
         .level = feature_level,
-        .requires = requires[0..i],
-    };
-}
-
-fn parseEnumExtension(elem: *xml.Element, parent_extnumber: ?u31) !?Require.EnumExtension {
-    // check for either _SPEC_VERSION or _EXTENSION_NAME
-    const extends = elem.getAttribute("extends") orelse return null;
-
-    if (elem.getAttribute("offset")) |offset_str| {
-        const offset = try std.fmt.parseInt(u31, offset_str, 10);
-        const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
-        const extnumber = if (elem.getAttribute("extnumber")) |num|
-            try std.fmt.parseInt(u31, num, 10)
-        else
-            null;
-
-        const actual_extnumber = extnumber orelse parent_extnumber orelse return error.InvalidRegistry;
-        const value = blk: {
-            const abs_value = enumExtOffsetToValue(actual_extnumber, offset);
-            if (elem.getAttribute("dir")) |dir| {
-                if (std.mem.eql(u8, dir, "-")) {
-                    break :blk -@as(i32, abs_value);
-                } else {
-                    return error.InvalidRegistry;
-                }
-            }
-
-            break :blk @as(i32, abs_value);
-        };
-
-        return Require.EnumExtension{
-            .extends = extends,
-            .extnumber = actual_extnumber,
-            .field = .{ .name = name, .value = .{ .int = value } },
-        };
-    }
-
-    return Require.EnumExtension{
-        .extends = extends,
-        .extnumber = parent_extnumber,
-        .field = try Enum.Field.parse(elem),
-    };
-}
-
-fn enumExtOffsetToValue(extnumber: u31, offset: u31) u31 {
-    const extension_value_base = 1000000000;
-    const extension_block = 1000;
-    return extension_value_base + (extnumber - 1) * extension_block + offset;
-}
-
-fn parseRequire(allocator: std.mem.Allocator, require: *xml.Element, extnumber: ?u31) !Require {
-    var n_extends: usize = 0;
-    var n_types: usize = 0;
-    var n_commands: usize = 0;
-
-    var it = require.elements();
-    while (it.next()) |elem| {
-        if (std.mem.eql(u8, elem.tag, "enum")) {
-            n_extends += 1;
-        } else if (std.mem.eql(u8, elem.tag, "type")) {
-            n_types += 1;
-        } else if (std.mem.eql(u8, elem.tag, "command")) {
-            n_commands += 1;
-        }
-    }
-
-    const extends = try allocator.alloc(Require.EnumExtension, n_extends);
-    const types = try allocator.alloc([]const u8, n_types);
-    const commands = try allocator.alloc([]const u8, n_commands);
-
-    var i_extends: usize = 0;
-    var i_types: usize = 0;
-    var i_commands: usize = 0;
-
-    it = require.elements();
-    while (it.next()) |elem| {
-        if (std.mem.eql(u8, elem.tag, "enum")) {
-            if (try parseEnumExtension(elem, extnumber)) |ext| {
-                extends[i_extends] = ext;
-                i_extends += 1;
-            }
-        } else if (std.mem.eql(u8, elem.tag, "type")) {
-            types[i_types] = elem.getAttribute("name") orelse return error.InvalidRegistry;
-            i_types += 1;
-        } else if (std.mem.eql(u8, elem.tag, "command")) {
-            commands[i_commands] = elem.getAttribute("name") orelse return error.InvalidRegistry;
-            i_commands += 1;
-        }
-    }
-
-    const required_feature_level = blk: {
-        const feature_level = require.getAttribute("feature") orelse break :blk null;
-        if (!std.mem.startsWith(u8, feature_level, "XR_VERSION_")) {
-            return error.InvalidRegistry;
-        }
-
-        break :blk try FeatureLevel.splitFeatureLevel(feature_level["XR_VERSION_".len..], "_");
-    };
-
-    return Require{
-        .extends = extends[0..i_extends],
-        .types = types[0..i_types],
-        .commands = commands[0..i_commands],
-        .required_feature_level = required_feature_level,
-        .required_extension = require.getAttribute("extension"),
-    };
-}
-
-fn parseExtensions(allocator: std.mem.Allocator, root: *xml.Element) ![]Extension {
-    const extensions_elem = root.findChildByTag("extensions") orelse return error.InvalidRegistry;
-
-    const extensions = try allocator.alloc(Extension, extensions_elem.children.len);
-    var i: usize = 0;
-    var it = extensions_elem.findChildrenByTag("extension");
-    while (it.next()) |extension| {
-        // Some extensions (in particular 94) are disabled, so just skip them
-        if (extension.getAttribute("supported")) |supported| {
-            if (std.mem.eql(u8, supported, "disabled")) {
-                continue;
-            }
-        }
-
-        extensions[i] = try parseExtension(allocator, extension);
-        i += 1;
-    }
-
-    return extensions[0..i];
-}
-
-fn findExtVersion(extension: *xml.Element) !u32 {
-    var req_it = extension.findChildrenByTag("require");
-    while (req_it.next()) |req| {
-        var enum_it = req.findChildrenByTag("enum");
-        while (enum_it.next()) |e| {
-            const name = e.getAttribute("name") orelse continue;
-            const value = e.getAttribute("value") orelse continue;
-            if (std.mem.endsWith(u8, name, "_SPEC_VERSION")) {
-                return try std.fmt.parseInt(u32, value, 10);
-            }
-        }
-    }
-
-    return error.InvalidRegistry;
-}
-
-fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !Extension {
-    const name = extension.getAttribute("name") orelse return error.InvalidRegistry;
-    const platform = extension.getAttribute("platform");
-    const version = try findExtVersion(extension);
-
-    // For some reason there are two ways for an extension to state its required
-    // feature level: both seperately in each <require> tag, or using
-    // the requiresCore attribute.
-    const requires_core = if (extension.getAttribute("requiresCore")) |feature_level|
-        try FeatureLevel.splitFeatureLevel(feature_level, ".")
-    else
-        null;
-
-    const promoted_to: Extension.Promotion = blk: {
-        const promotedto = extension.getAttribute("promotedto") orelse break :blk .none;
-        if (std.mem.startsWith(u8, promotedto, "XR_VERSION_")) {
-            const feature_level = try FeatureLevel.splitFeatureLevel(promotedto["XR_VERSION_".len..], "_");
-
-            break :blk .{ .feature = feature_level };
-        }
-
-        break :blk .{ .extension = promotedto };
-    };
-
-    const number = blk: {
-        const number_str = extension.getAttribute("number") orelse return error.InvalidRegistry;
-        break :blk try std.fmt.parseInt(u31, number_str, 10);
-    };
-
-    const ext_type: ?Extension.ExtensionType = blk: {
-        const ext_type_str = extension.getAttribute("type") orelse break :blk null;
-        if (std.mem.eql(u8, ext_type_str, "instance")) {
-            break :blk .instance;
-        } else if (std.mem.eql(u8, ext_type_str, "device")) {
-            break :blk .device;
-        } else {
-            return error.InvalidRegistry;
-        }
-    };
-
-    const depends = blk: {
-        const requires_str = extension.getAttribute("requires") orelse break :blk &[_][]const u8{};
-        break :blk try splitCommaAlloc(allocator, requires_str);
-    };
-
-    var requires = try allocator.alloc(Require, extension.children.len);
-    var i: usize = 0;
-    var it = extension.findChildrenByTag("require");
-    while (it.next()) |require| {
-        requires[i] = try parseRequire(allocator, require, number);
-        i += 1;
-    }
-
-    return Extension{
-        .name = name,
-        .number = number,
-        .version = version,
-        .extension_type = ext_type,
-        .depends = depends,
-        .promoted_to = promoted_to,
-        .platform = platform,
-        .required_feature_level = requires_core,
         .requires = requires[0..i],
     };
 }
