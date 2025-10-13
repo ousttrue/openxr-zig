@@ -97,10 +97,79 @@ pub const Command = struct {
         is_buffer_len: bool,
     };
 
+    name: []const u8,
     params: []Param,
     return_type: *TypeInfo,
     success_codes: []const []const u8,
     error_codes: []const []const u8,
+
+    pub fn parse(allocator: std.mem.Allocator, elem: *xml.Element) !@This() {
+        const proto = elem.findChildByTag("proto") orelse return error.InvalidRegistry;
+        var proto_xctok = XmlCTokenizer.init(proto);
+        const command_decl = try proto_xctok.parseParamOrProto(allocator, false);
+
+        var params = try allocator.alloc(@This().Param, elem.children.len);
+
+        var i: usize = 0;
+        var it = elem.findChildrenByTag("param");
+        while (it.next()) |param| {
+            var xctok = XmlCTokenizer.init(param);
+            const decl = try xctok.parseParamOrProto(allocator, false);
+            params[i] = .{
+                .name = decl.name,
+                .param_type = decl.decl_type.typedef,
+                .is_buffer_len = false,
+            };
+            i += 1;
+        }
+
+        const return_type = try allocator.create(TypeInfo);
+        return_type.* = command_decl.decl_type.typedef;
+
+        var success_codes: [][]const u8 = if (elem.getAttribute("successcodes")) |codes|
+            try splitCommaAlloc(allocator, codes)
+        else
+            &[_][]const u8{};
+
+        var error_codes: [][]const u8 = if (elem.getAttribute("errorcodes")) |codes|
+            try splitCommaAlloc(allocator, codes)
+        else
+            &[_][]const u8{};
+
+        for (success_codes, 0..) |code, session_i| {
+            if (std.mem.eql(u8, code, "XR_SESSION_LOSS_PENDING")) {
+                var move_i = session_i + 1;
+                while (move_i < success_codes.len) : (move_i += 1) {
+                    success_codes[move_i - 1] = success_codes[move_i];
+                }
+                success_codes = success_codes[0..success_codes.len];
+                success_codes.len = success_codes.len - 1;
+
+                const old_error_codes = error_codes;
+                error_codes = try allocator.alloc([]const u8, error_codes.len + 1);
+                std.mem.copyForwards([]const u8, error_codes, old_error_codes);
+                error_codes[error_codes.len - 1] = code;
+                allocator.free(old_error_codes);
+                break;
+            }
+        }
+
+        params = params[0..i];
+
+        it = elem.findChildrenByTag("param");
+        for (params) |*param| {
+            const param_elem = it.next().?;
+            try parsePointerMeta(.{ .command = params }, &param.param_type, param_elem);
+        }
+
+        return .{
+            .name = command_decl.name,
+            .params = params,
+            .return_type = return_type,
+            .success_codes = success_codes,
+            .error_codes = error_codes,
+        };
+    }
 };
 
 pub const Pointer = struct {
@@ -136,6 +205,15 @@ api_constants: []ApiConstant,
 tags: []Tag,
 features: []Feature,
 extensions: []Extension,
+
+pub fn getConstant(this: @This(), name: []const u8) ?ApiConstant {
+    for (this.api_constants) |c| {
+        if (std.mem.eql(u8, name, c.name)) {
+            return c;
+        }
+    }
+    return null;
+}
 
 pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     const xml_src = std.fs.cwd().readFileAlloc(
@@ -189,9 +267,48 @@ fn parseDeclarations(allocator: std.mem.Allocator, root: *xml.Element) ![]Declar
     const decls = try allocator.alloc(Declaration, decl_upper_bound);
 
     var count: usize = 0;
-    count += try parseTypes(allocator, decls, types_elem);
-    count += try parseEnums(allocator, decls[count..], root);
-    count += try parseCommands(allocator, decls[count..], commands_elem);
+    {
+        var it = types_elem.findChildrenByTag("type");
+        while (it.next()) |ty| {
+            if (try parseType(allocator, ty)) |decl| {
+                decls[count] = decl;
+                count += 1;
+            }
+        }
+    }
+    {
+        var it = root.findChildrenByTag("enums");
+        while (it.next()) |enums| {
+            const name = enums.getAttribute("name") orelse return error.InvalidRegistry;
+            if (std.mem.eql(u8, name, ApiConstant.api_constants_name)) {
+                continue;
+            }
+            decls[count] = .{
+                .name = name,
+                .decl_type = .{ .enumeration = try Enum.parse(allocator, enums) },
+            };
+            count += 1;
+        }
+    }
+    {
+        var it = commands_elem.findChildrenByTag("command");
+        while (it.next()) |elem| {
+            if (elem.getAttribute("alias")) |alias| {
+                const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
+                decls[count] = .{
+                    .name = name,
+                    .decl_type = .{ .alias = .{ .name = alias, .target = .other_command } },
+                };
+            } else {
+                const command = try Command.parse(allocator, elem);
+                decls[count] = .{
+                    .name = command.name,
+                    .decl_type = .{ .command = command },
+                };
+            }
+            count += 1;
+        }
+    }
     return decls[0..count];
 }
 
@@ -218,18 +335,6 @@ fn parseType(allocator: std.mem.Allocator, ty: *xml.Element) !?Declaration {
         return try parseForeigntype(ty);
     }
     return null;
-}
-
-fn parseTypes(allocator: std.mem.Allocator, out: []Declaration, types_elem: *xml.Element) !usize {
-    var i: usize = 0;
-    var it = types_elem.findChildrenByTag("type");
-    while (it.next()) |ty| {
-        if (try parseType(allocator, ty)) |decl| {
-            out[i] = decl;
-            i += 1;
-        }
-    }
-    return i;
 }
 
 fn parseForeigntype(ty: *xml.Element) !Declaration {
@@ -472,25 +577,6 @@ fn parseEnumAlias(elem: *xml.Element) !?Declaration {
     return null;
 }
 
-fn parseEnums(allocator: std.mem.Allocator, out: []Declaration, root: *xml.Element) !usize {
-    var i: usize = 0;
-    var it = root.findChildrenByTag("enums");
-    while (it.next()) |enums| {
-        const name = enums.getAttribute("name") orelse return error.InvalidRegistry;
-        if (std.mem.eql(u8, name, ApiConstant.api_constants_name)) {
-            continue;
-        }
-
-        out[i] = .{
-            .name = name,
-            .decl_type = .{ .enumeration = try Enum.parse(allocator, enums) },
-        };
-        i += 1;
-    }
-
-    return i;
-}
-
 fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
     var n_codes: usize = 1;
     for (text) |c| {
@@ -504,95 +590,4 @@ fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8
     }
 
     return codes;
-}
-
-fn parseCommands(allocator: std.mem.Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
-    var i: usize = 0;
-    var it = commands_elem.findChildrenByTag("command");
-    while (it.next()) |elem| {
-        out[i] = try parseCommand(allocator, elem);
-        i += 1;
-    }
-
-    return i;
-}
-
-fn parseCommand(allocator: std.mem.Allocator, elem: *xml.Element) !Declaration {
-    if (elem.getAttribute("alias")) |alias| {
-        const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
-        return Declaration{
-            .name = name,
-            .decl_type = .{ .alias = .{ .name = alias, .target = .other_command } },
-        };
-    }
-
-    const proto = elem.findChildByTag("proto") orelse return error.InvalidRegistry;
-    var proto_xctok = XmlCTokenizer.init(proto);
-    const command_decl = try proto_xctok.parseParamOrProto(allocator, false);
-
-    var params = try allocator.alloc(Command.Param, elem.children.len);
-
-    var i: usize = 0;
-    var it = elem.findChildrenByTag("param");
-    while (it.next()) |param| {
-        var xctok = XmlCTokenizer.init(param);
-        const decl = try xctok.parseParamOrProto(allocator, false);
-        params[i] = .{
-            .name = decl.name,
-            .param_type = decl.decl_type.typedef,
-            .is_buffer_len = false,
-        };
-        i += 1;
-    }
-
-    const return_type = try allocator.create(TypeInfo);
-    return_type.* = command_decl.decl_type.typedef;
-
-    var success_codes: [][]const u8 = if (elem.getAttribute("successcodes")) |codes|
-        try splitCommaAlloc(allocator, codes)
-    else
-        &[_][]const u8{};
-
-    var error_codes: [][]const u8 = if (elem.getAttribute("errorcodes")) |codes|
-        try splitCommaAlloc(allocator, codes)
-    else
-        &[_][]const u8{};
-
-    for (success_codes, 0..) |code, session_i| {
-        if (std.mem.eql(u8, code, "XR_SESSION_LOSS_PENDING")) {
-            var move_i = session_i + 1;
-            while (move_i < success_codes.len) : (move_i += 1) {
-                success_codes[move_i - 1] = success_codes[move_i];
-            }
-            success_codes = success_codes[0..success_codes.len];
-            success_codes.len = success_codes.len - 1;
-
-            const old_error_codes = error_codes;
-            error_codes = try allocator.alloc([]const u8, error_codes.len + 1);
-            std.mem.copyForwards([]const u8, error_codes, old_error_codes);
-            error_codes[error_codes.len - 1] = code;
-            allocator.free(old_error_codes);
-            break;
-        }
-    }
-
-    params = params[0..i];
-
-    it = elem.findChildrenByTag("param");
-    for (params) |*param| {
-        const param_elem = it.next().?;
-        try parsePointerMeta(.{ .command = params }, &param.param_type, param_elem);
-    }
-
-    return Declaration{
-        .name = command_decl.name,
-        .decl_type = .{
-            .command = .{
-                .params = params,
-                .return_type = return_type,
-                .success_codes = success_codes,
-                .error_codes = error_codes,
-            },
-        },
-    };
 }

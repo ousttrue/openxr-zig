@@ -13,6 +13,15 @@ pub fn main() !void {
     defer arena.deinit();
 
     const registry = try Registry.load(arena.allocator(), args.xml_path);
+    const version = registry.getConstant("XR_CURRENT_API_VERSION") orelse unreachable;
+    std.log.debug("{f}", .{version});
+    for (registry.features) |feature| {
+        std.log.debug("{f}", .{feature});
+    }
+    std.log.debug("extensins: {}", .{registry.extensions.len});
+    // for (registry.extensions) |extension| {
+    //     std.log.debug("{f}", .{extension});
+    // }
 
     var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();
@@ -21,7 +30,7 @@ pub fn main() !void {
     const out_dir = try std.fs.cwd().openDir(args.out_path, .{ .access_sub_paths = true });
     var it = renderer.moduleFileMap.iterator();
     while (it.next()) |entry| {
-        const content = try formatZigSource(allocator, entry.value_ptr.*.items);
+        const content = try formatZigSource(allocator, entry.value_ptr.*);
         defer allocator.free(content);
         writeFile(out_dir, entry.key_ptr.*, content) catch |e| {
             std.log.err("  error => {s}", .{@errorName(e)});

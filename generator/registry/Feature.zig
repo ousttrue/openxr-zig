@@ -7,6 +7,10 @@ name: []const u8,
 level: FeatureLevel, // from 'number'
 requires: []Require,
 
+pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writer.print("feature: {s}", .{this.name});
+}
+
 pub fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !@This() {
     const name = feature.getAttribute("name") orelse return error.InvalidRegistry;
     const feature_level = blk: {

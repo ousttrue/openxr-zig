@@ -294,6 +294,7 @@ fn parseFnPtrSuffix(self: *@This(), allocator: std.mem.Allocator, return_type: R
         .name = name.text,
         .decl_type = .{
             .command_ptr = .{
+                .name = name.text,
                 .params = &[_]Registry.Command.Param{},
                 .return_type = return_type_heap,
                 .success_codes = &[_][]const u8{},

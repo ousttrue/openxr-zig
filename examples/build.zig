@@ -37,12 +37,18 @@ pub fn build(b: *std.Build) !void {
     };
     exe.addLibraryPath(openxr_loader.prefix.getDirectory().path(b, "lib"));
     exe.linkSystemLibrary("openxr_loader");
+    // copy dll
+    const dll = b.addInstallBinFile(
+        openxr_loader.prefix.getDirectory().path(b, "bin/openxr_loader.dll"),
+        "openxr_loader.dll",
+    );
+    b.getInstallStep().dependOn(&dll.step);
 
     const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
     const registry_path = if (xr_xml_path) |override_registry|
         override_registry
     else
-        b.path("xr.xml").getPath(b);
+        "xr.xml";
     const openxr = b.dependency("xr_zig", .{
         .registry = registry_path,
     }).module("openxr");
@@ -50,6 +56,6 @@ pub fn build(b: *std.Build) !void {
 
     const example_run_cmd = b.addRunArtifact(exe);
     example_run_cmd.step.dependOn(b.getInstallStep());
-    const example_run_step = b.step("run-example", "Run the example");
+    const example_run_step = b.step("run", "Run the example");
     example_run_step.dependOn(&example_run_cmd.step);
 }

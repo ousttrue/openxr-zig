@@ -24,6 +24,10 @@ platform: ?[]const u8,
 required_feature_level: ?FeatureLevel,
 requires: []Require,
 
+pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writer.print("extension: {s}", .{this.name});
+}
+
 pub fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !@This() {
     const name = extension.getAttribute("name") orelse return error.InvalidRegistry;
     const platform = extension.getAttribute("platform");

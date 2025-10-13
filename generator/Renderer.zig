@@ -6,64 +6,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const CaseStyle = IdRenderer.CaseStyle;
 
-const preamble =
-    \\// This file is generated from the Khronos OpenXR XML API registry by openxr-zig
-    \\
-    \\const std = @import("std");
-    \\const builtin = @import("builtin");
-    \\const root = @import("root");
-    \\
-    \\pub const openxr_call_conv: std.builtin.CallingConvention = if (builtin.os.tag == .windows and builtin.cpu.arch == .x86)
-    \\        .Stdcall
-    \\    else if (builtin.abi == .android and (builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb()) and builtin.Target.arm.featureSetHas(builtin.cpu.features, .has_v7) and builtin.cpu.arch.ptrBitWidth() == 32)
-    \\        // On Android 32-bit ARM targets, OpenXR functions use the "hardfloat"
-    \\        // calling convention, i.e. float parameters are passed in registers. This
-    \\        // is true even if the rest of the application passes floats on the stack,
-    \\        // as it does by default when compiling for the armeabi-v7a NDK ABI.
-    \\        .AAPCSVFP
-    \\    else
-    \\        .c;
-    \\pub fn FlagsMixin(comptime FlagsType: type) type {
-    \\    return struct {
-    \\        pub const IntType = Flags64;
-    \\        pub fn toInt(self: FlagsType) IntType {
-    \\            return @bitCast(self);
-    \\        }
-    \\        pub fn fromInt(flags: IntType) FlagsType {
-    \\            return @bitCast(flags);
-    \\        }
-    \\        pub fn merge(lhs: FlagsType, rhs: FlagsType) FlagsType {
-    \\            return fromInt(toInt(lhs) | toInt(rhs));
-    \\        }
-    \\        pub fn intersect(lhs: FlagsType, rhs: FlagsType) FlagsType {
-    \\            return fromInt(toInt(lhs) & toInt(rhs));
-    \\        }
-    \\        pub fn complement(self: FlagsType) FlagsType {
-    \\            return fromInt(~toInt(self));
-    \\        }
-    \\        pub fn subtract(lhs: FlagsType, rhs: FlagsType) FlagsType {
-    \\            return fromInt(toInt(lhs) & toInt(rhs.complement()));
-    \\        }
-    \\        pub fn contains(lhs: FlagsType, rhs: FlagsType) bool {
-    \\            return toInt(intersect(lhs, rhs)) == toInt(rhs);
-    \\        }
-    \\    };
-    \\}
-    \\pub fn makeVersion(major: u16, minor: u16, patch: u32) u64 {
-    \\    return (@as(u64, major) << 48) | (@as(u64, minor) << 32) | patch;
-    \\}
-    \\pub fn versionMajor(version: u64) u16 {
-    \\    return @truncate(version >> 48);
-    \\}
-    \\pub fn versionMinor(version: u16) u16 {
-    \\    return @truncate(version >> 32);
-    \\}
-    \\pub fn versionPatch(version: u64) u32 {
-    \\    return @truncate(version);
-    \\}
-    \\
-;
-
 const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "void", @typeName(void) },
     .{ "char", @typeName(u8) },
@@ -183,7 +125,7 @@ registry: *const Registry,
 id_renderer: IdRenderer,
 declarations_by_name: std.StringHashMap(*const Registry.DeclarationType),
 structure_types: std.StringHashMap(void),
-moduleFileMap: std.StringHashMap(*std.array_list.Managed(u8)),
+moduleFileMap: std.StringHashMap([]u8),
 
 pub fn init(allocator: Allocator, registry: *const Registry) !Self {
     var declarations_by_name = std.StringHashMap(*const Registry.DeclarationType).init(allocator);
@@ -220,33 +162,32 @@ pub fn init(allocator: Allocator, registry: *const Registry) !Self {
     };
 }
 
-pub fn deinit(self: *Self) void {
-    var it = self.moduleFileMap.iterator();
+pub fn deinit(this: *Self) void {
+    var it = this.moduleFileMap.iterator();
     while (it.next()) |entry| {
-        entry.value_ptr.*.deinit();
-        self.allocator.destroy(entry.value_ptr.*);
+        this.allocator.free(entry.value_ptr.*);
     }
-    self.moduleFileMap.deinit();
-    self.declarations_by_name.deinit();
+    this.moduleFileMap.deinit();
+    this.declarations_by_name.deinit();
 }
 
 fn writeIdentifier(_: *Self, writer: *std.Io.Writer, id: []const u8) !void {
     try IdRenderer.writeIdentifier(writer, id);
 }
 
-fn writeIdentifierWithCase(self: *Self, writer: *std.Io.Writer, case: CaseStyle, id: []const u8) !void {
-    try self.id_renderer.renderWithCase(writer, case, id);
+fn writeIdentifierWithCase(this: *Self, writer: *std.Io.Writer, case: CaseStyle, id: []const u8) !void {
+    try this.id_renderer.renderWithCase(writer, case, id);
 }
 
-fn writeIdentifierFmt(self: *Self, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) IdRenderer.Error!void {
-    try self.id_renderer.renderFmt(writer, fmt, args);
+fn writeIdentifierFmt(this: *Self, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) IdRenderer.Error!void {
+    try this.id_renderer.renderFmt(writer, fmt, args);
 }
 
-fn extractEnumFieldName(self: *Self, enum_name: []const u8, field_name: []const u8) ![]const u8 {
+fn extractEnumFieldName(this: *Self, enum_name: []const u8, field_name: []const u8) ![]const u8 {
     const adjusted_enum_name = if (mem.eql(u8, enum_name, "XrStructureType"))
         "XrType"
     else
-        self.id_renderer.stripAuthorTag(enum_name);
+        this.id_renderer.stripAuthorTag(enum_name);
     var enum_it = IdRenderer.SegmentIterator.init(adjusted_enum_name);
     var field_it = IdRenderer.SegmentIterator.init(field_name);
 
@@ -261,8 +202,8 @@ fn extractEnumFieldName(self: *Self, enum_name: []const u8, field_name: []const 
     }
 }
 
-fn extractBitflagName(self: *Self, name: []const u8) ?BitflagName {
-    const tag = self.id_renderer.getAuthorTag(name);
+fn extractBitflagName(this: *Self, name: []const u8) ?BitflagName {
+    const tag = this.id_renderer.getAuthorTag(name);
     const base_name = if (tag) |tag_name| name[0 .. name.len - tag_name.len] else name;
 
     if (!mem.endsWith(u8, base_name, "FlagBits")) {
@@ -275,19 +216,19 @@ fn extractBitflagName(self: *Self, name: []const u8) ?BitflagName {
     };
 }
 
-fn isFlags(self: *Self, name: []const u8) bool {
-    const tag = self.id_renderer.getAuthorTag(name);
+fn isFlags(this: *Self, name: []const u8) bool {
+    const tag = this.id_renderer.getAuthorTag(name);
     const base_name = if (tag) |tag_name| name[0 .. name.len - tag_name.len] else name;
 
     return mem.endsWith(u8, base_name, "Flags64");
 }
 
-fn resolveDeclaration(self: *Self, name: []const u8) ?Registry.DeclarationType {
-    const decl = self.declarations_by_name.get(name) orelse return null;
-    return self.resolveAlias(decl.*) catch return null;
+fn resolveDeclaration(this: *Self, name: []const u8) ?Registry.DeclarationType {
+    const decl = this.declarations_by_name.get(name) orelse return null;
+    return this.resolveAlias(decl.*) catch return null;
 }
 
-fn resolveAlias(self: *Self, start_decl: Registry.DeclarationType) !Registry.DeclarationType {
+fn resolveAlias(this: *Self, start_decl: Registry.DeclarationType) !Registry.DeclarationType {
     var decl = start_decl;
     while (true) {
         const name = switch (decl) {
@@ -295,17 +236,17 @@ fn resolveAlias(self: *Self, start_decl: Registry.DeclarationType) !Registry.Dec
             else => return decl,
         };
 
-        const decl_ptr = self.declarations_by_name.get(name) orelse return error.InvalidRegistry;
+        const decl_ptr = this.declarations_by_name.get(name) orelse return error.InvalidRegistry;
         decl = decl_ptr.*;
     }
 }
 
-fn isInOutPointer(self: *Self, ptr: Registry.Pointer) !bool {
+fn isInOutPointer(this: *Self, ptr: Registry.Pointer) !bool {
     if (ptr.child.* != .name) {
         return false;
     }
 
-    const decl = self.resolveDeclaration(ptr.child.name) orelse return error.InvalidRegistry;
+    const decl = this.resolveDeclaration(ptr.child.name) orelse return error.InvalidRegistry;
     if (decl != .container) {
         return false;
     }
@@ -324,7 +265,7 @@ fn isInOutPointer(self: *Self, ptr: Registry.Pointer) !bool {
     return false;
 }
 
-fn classifyParam(self: *Self, param: Registry.Command.Param) !ParamType {
+fn classifyParam(this: *Self, param: Registry.Command.Param) !ParamType {
     switch (param.param_type) {
         .pointer => |ptr| {
             if (param.is_buffer_len) {
@@ -350,7 +291,7 @@ fn classifyParam(self: *Self, param: Registry.Command.Param) !ParamType {
                 // for getting structs which include next chains.
                 if (ptr.is_const) {
                     return .in_pointer;
-                } else if (try self.isInOutPointer(ptr)) {
+                } else if (try this.isInOutPointer(ptr)) {
                     return .in_out_pointer;
                 } else {
                     return .out_pointer;
@@ -358,7 +299,7 @@ fn classifyParam(self: *Self, param: Registry.Command.Param) !ParamType {
             }
         },
         .name => |name| {
-            if (self.extractBitflagName(name) != null or self.isFlags(name)) {
+            if (this.extractBitflagName(name) != null or this.isFlags(name)) {
                 return .bitflags;
             }
         },
@@ -390,20 +331,20 @@ fn classifyCommandDispatch(name: []const u8, command: Registry.Command) CommandD
     };
 }
 
-fn renderApiConstant(self: *Self, writer: *std.Io.Writer, api_constant: Registry.ApiConstant) !void {
+fn renderApiConstant(this: *Self, writer: *std.Io.Writer, api_constant: Registry.ApiConstant) !void {
     try writer.writeAll("pub const ");
-    try self.renderName(writer, api_constant.name);
+    try this.renderName(writer, api_constant.name);
     try writer.writeAll(" = ");
 
     switch (api_constant.value) {
-        .expr => |expr| try self.renderApiConstantExpr(writer, expr),
+        .expr => |expr| try this.renderApiConstantExpr(writer, expr),
         .version => |version| {
             try writer.writeAll("makeVersion(");
             for (version, 0..) |part, i| {
                 if (i != 0) {
                     try writer.writeAll(", ");
                 }
-                try self.renderApiConstantExpr(writer, part);
+                try this.renderApiConstantExpr(writer, part);
             }
             try writer.writeAll(")");
         },
@@ -412,7 +353,7 @@ fn renderApiConstant(self: *Self, writer: *std.Io.Writer, api_constant: Registry
     try writer.writeAll(";\n");
 }
 
-fn renderApiConstantExpr(self: *Self, writer: *std.Io.Writer, expr: []const u8) !void {
+fn renderApiConstantExpr(this: *Self, writer: *std.Io.Writer, expr: []const u8) !void {
     const adjusted_expr = if (expr.len > 2 and expr[0] == '(' and expr[expr.len - 1] == ')')
         expr[1 .. expr.len - 1]
     else
@@ -430,7 +371,7 @@ fn renderApiConstantExpr(self: *Self, writer: *std.Io.Writer, expr: []const u8) 
                 continue;
             },
             .id => {
-                try self.renderName(writer, tok.text);
+                try this.renderName(writer, tok.text);
                 continue;
             },
             .int => {},
@@ -469,80 +410,80 @@ fn renderApiConstantExpr(self: *Self, writer: *std.Io.Writer, expr: []const u8) 
     }
 }
 
-fn renderTypeInfo(self: *Self, writer: *std.Io.Writer, type_info: Registry.TypeInfo) IdRenderer.Error!void {
+fn renderTypeInfo(this: *Self, writer: *std.Io.Writer, type_info: Registry.TypeInfo) IdRenderer.Error!void {
     switch (type_info) {
-        .name => |name| try self.renderName(writer, name),
-        .command_ptr => |command_ptr| try self.renderCommandPtr(writer, command_ptr, true),
-        .pointer => |pointer| try self.renderPointer(writer, pointer),
-        .array => |array| try self.renderArray(writer, array),
+        .name => |name| try this.renderName(writer, name),
+        .command_ptr => |command_ptr| try this.renderCommandPtr(writer, command_ptr, true),
+        .pointer => |pointer| try this.renderPointer(writer, pointer),
+        .array => |array| try this.renderArray(writer, array),
     }
 }
 
-fn renderName(self: *Self, writer: *std.Io.Writer, name: []const u8) IdRenderer.Error!void {
+fn renderName(this: *Self, writer: *std.Io.Writer, name: []const u8) IdRenderer.Error!void {
     if (builtin_types.get(name)) |zig_name| {
         try writer.writeAll(zig_name);
         return;
-    } else if (self.extractBitflagName(name)) |bitflag_name| {
-        try self.writeIdentifierFmt(writer, "{s}Flags{s}", .{
+    } else if (this.extractBitflagName(name)) |bitflag_name| {
+        try this.writeIdentifierFmt(writer, "{s}Flags{s}", .{
             trimXrNamespace(bitflag_name.base_name),
             @as([]const u8, if (bitflag_name.tag) |tag| tag else ""),
         });
         return;
     } else if (mem.startsWith(u8, name, "xr")) {
         // Function type, always render with the exact same text for linking purposes.
-        try self.writeIdentifier(writer, name);
+        try this.writeIdentifier(writer, name);
         return;
     } else if (mem.startsWith(u8, name, "Xr")) {
         // Type, strip namespace and write, as they are alreay in title case.
-        try self.writeIdentifier(writer, name[2..]);
+        try this.writeIdentifier(writer, name[2..]);
         return;
     } else if (mem.startsWith(u8, name, "PFN_xr")) {
         // Function pointer type, strip off the PFN_xr part and replace it with Pfn. Note that
         // this function is only called to render the typedeffed function pointers like xrVoidFunction
-        try self.writeIdentifierFmt(writer, "Pfn{s}", .{name[6..]});
+        try this.writeIdentifierFmt(writer, "Pfn{s}", .{name[6..]});
         return;
     } else if (mem.startsWith(u8, name, "XR_")) {
         // Constants
-        try self.writeIdentifier(writer, name[3..]);
+        try this.writeIdentifier(writer, name[3..]);
         return;
     }
 
-    try self.writeIdentifier(writer, name);
+    try this.writeIdentifier(writer, name);
 }
 
-fn renderCommandPtr(self: *Self, writer: *std.Io.Writer, command_ptr: Registry.Command, optional: bool) IdRenderer.Error!void {
+fn renderCommandPtr(this: *Self, writer: *std.Io.Writer, command_ptr: Registry.Command, optional: bool) IdRenderer.Error!void {
     if (optional) {
         try writer.writeByte('?');
     }
     try writer.writeAll("*const fn(");
     for (command_ptr.params) |param| {
-        try self.writeIdentifierWithCase(writer, .snake, param.name);
+        try this.writeIdentifierWithCase(writer, .snake, param.name);
         try writer.writeAll(": ");
 
         blk: {
             if (param.param_type == .name) {
-                if (self.extractBitflagName(param.param_type.name)) |bitflag_name| {
-                    try self.writeIdentifierFmt(writer, "{s}Flags{s}", .{
+                if (this.extractBitflagName(param.param_type.name)) |bitflag_name| {
+                    try this.writeIdentifierFmt(writer, "{s}Flags{s}", .{
                         trimXrNamespace(bitflag_name.base_name),
                         @as([]const u8, if (bitflag_name.tag) |tag| tag else ""),
                     });
                     break :blk;
-                } else if (self.isFlags(param.param_type.name)) {
-                    try self.renderTypeInfo(writer, param.param_type);
+                } else if (this.isFlags(param.param_type.name)) {
+                    try this.renderTypeInfo(writer, param.param_type);
                     break :blk;
                 }
             }
 
-            try self.renderTypeInfo(writer, param.param_type);
+            try this.renderTypeInfo(writer, param.param_type);
         }
 
         try writer.writeAll(", ");
     }
     try writer.writeAll(") callconv(openxr_call_conv)");
-    try self.renderTypeInfo(writer, command_ptr.return_type.*);
+    try this.renderTypeInfo(writer, command_ptr.return_type.*);
 }
 
-fn renderPointer(self: *Self, writer: *std.Io.Writer, pointer: Registry.Pointer) IdRenderer.Error!void {
+fn renderPointer(this: *Self, writer: *std.Io.Writer, pointer: Registry.Pointer) IdRenderer.Error!void {
     const child_is_void = pointer.child.* == .name and mem.eql(u8, pointer.child.name, "void");
 
     if (pointer.is_optional) {
@@ -563,36 +504,36 @@ fn renderPointer(self: *Self, writer: *std.Io.Writer, pointer: Registry.Pointer)
     if (child_is_void) {
         try writer.writeAll("anyopaque");
     } else {
-        try self.renderTypeInfo(writer, pointer.child.*);
+        try this.renderTypeInfo(writer, pointer.child.*);
     }
 }
 
-fn renderArray(self: *Self, writer: *std.Io.Writer, array: Registry.Array) !void {
+fn renderArray(this: *Self, writer: *std.Io.Writer, array: Registry.Array) !void {
     try writer.writeByte('[');
     switch (array.size) {
         .int => |size| try writer.print("{}", .{size}),
-        .alias => |alias| try self.renderName(writer, alias),
+        .alias => |alias| try this.renderName(writer, alias),
     }
     try writer.writeByte(']');
-    try self.renderTypeInfo(writer, array.child.*);
+    try this.renderTypeInfo(writer, array.child.*);
 }
 
-fn renderDecl(self: *Self, writer: *std.Io.Writer, decl: Registry.Declaration) !void {
+fn renderDecl(this: *Self, writer: *std.Io.Writer, decl: Registry.Declaration) !void {
     switch (decl.decl_type) {
-        .container => |container| try self.renderContainer(writer, decl.name, container),
-        .enumeration => |enumeration| try self.renderEnumeration(writer, decl.name, enumeration),
-        .handle => |handle| try self.renderHandle(writer, decl.name, handle),
-        .alias => |alias| try self.renderAlias(writer, decl.name, alias),
-        .foreign => |foreign| try self.renderForeign(writer, decl.name, foreign),
-        .typedef => |type_info| try self.renderTypedef(writer, decl.name, type_info),
-        .external => try self.renderExternal(writer, decl.name),
+        .container => |container| try this.renderContainer(writer, decl.name, container),
+        .enumeration => |enumeration| try this.renderEnumeration(writer, decl.name, enumeration),
+        .handle => |handle| try this.renderHandle(writer, decl.name, handle),
+        .alias => |alias| try this.renderAlias(writer, decl.name, alias),
+        .foreign => |foreign| try this.renderForeign(writer, decl.name, foreign),
+        .typedef => |type_info| try this.renderTypedef(writer, decl.name, type_info),
+        .external => try this.renderExternal(writer, decl.name),
         .command, .bitmask => {},
     }
 }
 
-fn renderContainer(self: *Self, writer: *std.Io.Writer, name: []const u8, container: Registry.Container) !void {
+fn renderContainer(this: *Self, writer: *std.Io.Writer, name: []const u8, container: Registry.Container) !void {
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = ");
 
     for (container.fields) |field| {
@@ -610,19 +551,19 @@ fn renderContainer(self: *Self, writer: *std.Io.Writer, name: []const u8, contai
     }
 
     for (container.fields) |field| {
-        try self.writeIdentifierWithCase(writer, .snake, field.name);
+        try this.writeIdentifierWithCase(writer, .snake, field.name);
         try writer.writeAll(": ");
         if (field.bits) |bits| {
             try writer.print(" u{},", .{bits});
             if (field.field_type != .name or builtin_types.get(field.field_type.name) == null) {
                 try writer.writeAll("// ");
-                try self.renderTypeInfo(writer, field.field_type);
+                try this.renderTypeInfo(writer, field.field_type);
                 try writer.writeByte('\n');
             }
         } else {
-            try self.renderTypeInfo(writer, field.field_type);
+            try this.renderTypeInfo(writer, field.field_type);
             if (!container.is_union) {
-                try self.renderContainerDefaultField(writer, container, name, field);
+                try this.renderContainerDefaultField(writer, container, name, field);
             }
             try writer.writeAll(", ");
         }
@@ -644,8 +585,8 @@ fn renderContainer(self: *Self, writer: *std.Io.Writer, name: []const u8, contai
             for (container.fields) |field| {
                 if (mem.eql(u8, field.name, "next") or mem.eql(u8, field.name, "type")) {
                     try writer.writeAll("value.");
-                    try self.writeIdentifierWithCase(writer, .snake, field.name);
-                    try self.renderContainerDefaultField(writer, container, name, field);
+                    try this.writeIdentifierWithCase(writer, .snake, field.name);
+                    try this.renderContainerDefaultField(writer, container, name, field);
                     try writer.writeAll(";\n");
                 }
             }
@@ -660,7 +601,7 @@ fn renderContainer(self: *Self, writer: *std.Io.Writer, name: []const u8, contai
     try writer.writeAll("};\n");
 }
 
-fn renderContainerDefaultField(self: *Self, writer: *std.Io.Writer, container: Registry.Container, container_name: []const u8, field: Registry.Container.Field) !void {
+fn renderContainerDefaultField(this: *Self, writer: *std.Io.Writer, container: Registry.Container, container_name: []const u8, field: Registry.Container.Field) !void {
     if (mem.eql(u8, field.name, "next")) {
         try writer.writeAll(" = null");
     } else if (mem.eql(u8, field.name, "type")) {
@@ -674,13 +615,13 @@ fn renderContainerDefaultField(self: *Self, writer: *std.Io.Writer, container: R
         }
 
         try writer.writeAll(" = .");
-        try self.writeIdentifierWithCase(writer, .snake, stype["XR_TYPE_".len..]);
+        try this.writeIdentifierWithCase(writer, .snake, stype["XR_TYPE_".len..]);
     } else if (mem.eql(u8, field.name, "w") and mem.eql(u8, container_name, "XrQuaternionf")) {
         try writer.writeAll(" = 1");
     } else if (field.is_optional) {
         if (field.field_type == .name) {
             const field_type_name = field.field_type.name;
-            if (self.resolveDeclaration(field_type_name)) |decl_type| {
+            if (this.resolveDeclaration(field_type_name)) |decl_type| {
                 if (decl_type == .handle) {
                     try writer.writeAll(" = .null_handle");
                 } else if (decl_type == .bitmask) {
@@ -705,25 +646,25 @@ fn renderContainerDefaultField(self: *Self, writer: *std.Io.Writer, container: R
     }
 }
 
-fn renderEnumFieldName(self: *Self, writer: *std.Io.Writer, name: []const u8, field_name: []const u8) !void {
-    try self.writeIdentifierWithCase(writer, .snake, try self.extractEnumFieldName(name, field_name));
+fn renderEnumFieldName(this: *Self, writer: *std.Io.Writer, name: []const u8, field_name: []const u8) !void {
+    try this.writeIdentifierWithCase(writer, .snake, try this.extractEnumFieldName(name, field_name));
 }
 
-fn renderEnumeration(self: *Self, writer: *std.Io.Writer, name: []const u8, enumeration: Registry.Enum) !void {
+fn renderEnumeration(this: *Self, writer: *std.Io.Writer, name: []const u8, enumeration: Registry.Enum) !void {
     if (enumeration.is_bitmask) {
-        try self.renderBitmaskBits(writer, name, enumeration);
+        try this.renderBitmaskBits(writer, name, enumeration);
         return;
     }
 
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = enum(i32) {");
 
     for (enumeration.fields) |field| {
         if (field.value == .alias)
             continue;
 
-        try self.renderEnumFieldName(writer, name, field.name);
+        try this.renderEnumFieldName(writer, name, field.name);
         switch (field.value) {
             .int => |int| try writer.print(" = {}, ", .{int}),
             .bitpos => |pos| try writer.print(" = 1 << {}, ", .{pos}),
@@ -739,20 +680,20 @@ fn renderEnumeration(self: *Self, writer: *std.Io.Writer, name: []const u8, enum
             continue;
 
         try writer.writeAll("pub const ");
-        try self.renderEnumFieldName(writer, name, field.name);
+        try this.renderEnumFieldName(writer, name, field.name);
         try writer.writeAll(" = ");
-        try self.renderName(writer, name);
+        try this.renderName(writer, name);
         try writer.writeByte('.');
-        try self.renderEnumFieldName(writer, name, field.value.alias.name);
+        try this.renderEnumFieldName(writer, name, field.value.alias.name);
         try writer.writeAll(";\n");
     }
 
     try writer.writeAll("};\n");
 }
 
-fn renderBitmaskBits(self: *Self, writer: *std.Io.Writer, name: []const u8, bits: Registry.Enum) !void {
+fn renderBitmaskBits(this: *Self, writer: *std.Io.Writer, name: []const u8, bits: Registry.Enum) !void {
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = packed struct {");
 
     if (bits.fields.len == 0) {
@@ -767,7 +708,7 @@ fn renderBitmaskBits(self: *Self, writer: *std.Io.Writer, name: []const u8, bits
 
         for (flags_by_bitpos, 0..) |opt_flag_name, bitpos| {
             if (opt_flag_name) |flag_name| {
-                try self.renderEnumFieldName(writer, name, flag_name);
+                try this.renderEnumFieldName(writer, name, flag_name);
             } else {
                 try writer.print("_reserved_bit_{}", .{bitpos});
             }
@@ -776,48 +717,48 @@ fn renderBitmaskBits(self: *Self, writer: *std.Io.Writer, name: []const u8, bits
         }
     }
     try writer.writeAll("//pub usingnamespace FlagsMixin(");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(");\n};\n");
 }
 
-fn renderHandle(self: *Self, writer: *std.Io.Writer, name: []const u8, handle: Registry.Handle) !void {
+fn renderHandle(this: *Self, writer: *std.Io.Writer, name: []const u8, handle: Registry.Handle) !void {
     const backing_type: []const u8 = if (handle.is_dispatchable) "usize" else "u64";
 
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.print(" = enum({s}) {{null_handle = 0, _}};\n", .{backing_type});
 }
 
-fn renderAlias(self: *Self, writer: *std.Io.Writer, name: []const u8, alias: Registry.Alias) !void {
+fn renderAlias(this: *Self, writer: *std.Io.Writer, name: []const u8, alias: Registry.Alias) !void {
     if (alias.target == .other_command) {
         return;
-    } else if (self.extractBitflagName(name) != null) {
+    } else if (this.extractBitflagName(name) != null) {
         // Don't make aliases of the bitflag names, as those are replaced by just the flags type
         return;
     }
 
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = ");
-    try self.renderName(writer, alias.name);
+    try this.renderName(writer, alias.name);
     try writer.writeAll(";\n");
 }
 
-fn renderExternal(self: *Self, writer: *std.Io.Writer, name: []const u8) !void {
+fn renderExternal(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = opaque {};\n");
 }
 
-fn renderForeign(self: *Self, writer: *std.Io.Writer, name: []const u8, foreign: Registry.Foreign) !void {
+fn renderForeign(this: *Self, writer: *std.Io.Writer, name: []const u8, foreign: Registry.Foreign) !void {
     if (mem.eql(u8, foreign.depends, "openxr_platform_defines")) {
         return; // Skip built-in types, they are handled differently
     }
 
     try writer.writeAll("pub const ");
-    try self.writeIdentifier(writer, name);
+    try this.writeIdentifier(writer, name);
     try writer.print(" = if (@hasDecl(root, \"{s}\")) root.", .{name});
-    try self.writeIdentifier(writer, name);
+    try this.writeIdentifier(writer, name);
     try writer.writeAll(" else ");
 
     if (foreign_types.get(name)) |default| {
@@ -828,33 +769,33 @@ fn renderForeign(self: *Self, writer: *std.Io.Writer, name: []const u8, foreign:
     }
 }
 
-fn renderTypedef(self: *Self, writer: *std.Io.Writer, name: []const u8, type_info: Registry.TypeInfo) !void {
+fn renderTypedef(this: *Self, writer: *std.Io.Writer, name: []const u8, type_info: Registry.TypeInfo) !void {
     try writer.writeAll("pub const ");
-    try self.renderName(writer, name);
+    try this.renderName(writer, name);
     try writer.writeAll(" = ");
-    try self.renderTypeInfo(writer, type_info);
+    try this.renderTypeInfo(writer, type_info);
     try writer.writeAll(";\n");
 }
 
-fn renderCommandPtrName(self: *Self, writer: *std.Io.Writer, name: []const u8) !void {
-    try self.writeIdentifierFmt(writer, "Pfn{s}", .{trimXrNamespace(name)});
+fn renderCommandPtrName(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
+    try this.writeIdentifierFmt(writer, "Pfn{s}", .{trimXrNamespace(name)});
 }
 
-fn renderCommandPtrs(self: *Self, writer: *std.Io.Writer) !void {
-    for (self.registry.decls) |decl| {
+fn renderCommandPtrs(this: *Self, writer: *std.Io.Writer) !void {
+    for (this.registry.decls) |decl| {
         switch (decl.decl_type) {
             .command => {
                 try writer.writeAll("pub const ");
-                try self.renderCommandPtrName(writer, decl.name);
+                try this.renderCommandPtrName(writer, decl.name);
                 try writer.writeAll(" = ");
-                try self.renderCommandPtr(writer, decl.decl_type.command, false);
+                try this.renderCommandPtr(writer, decl.decl_type.command, false);
                 try writer.writeAll(";\n");
             },
             .alias => |alias| if (alias.target == .other_command) {
                 try writer.writeAll("pub const ");
-                try self.renderCommandPtrName(writer, decl.name);
+                try this.renderCommandPtrName(writer, decl.name);
                 try writer.writeAll(" = ");
-                try self.renderCommandPtrName(writer, alias.name);
+                try this.renderCommandPtrName(writer, alias.name);
                 try writer.writeAll(";\n");
             },
             else => {},
@@ -862,7 +803,7 @@ fn renderCommandPtrs(self: *Self, writer: *std.Io.Writer) !void {
     }
 }
 
-fn renderExtensionInfo(self: *Self, writer: *std.Io.Writer) !void {
+fn renderExtensionInfo(this: *Self, writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\pub const extension_info = struct {
         \\    const Info = struct {
@@ -870,9 +811,9 @@ fn renderExtensionInfo(self: *Self, writer: *std.Io.Writer) !void {
         \\        version: u32,
         \\    };
     );
-    for (self.registry.extensions) |ext| {
+    for (this.registry.extensions) |ext| {
         try writer.writeAll("pub const ");
-        try self.writeIdentifierWithCase(writer, .snake, trimXrNamespace(ext.name));
+        try this.writeIdentifierWithCase(writer, .snake, trimXrNamespace(ext.name));
         try writer.writeAll("= Info {\n");
         try writer.print(".name = \"{s}\", .version = {},", .{ ext.name, ext.version });
         try writer.writeAll("};\n");
@@ -880,7 +821,7 @@ fn renderExtensionInfo(self: *Self, writer: *std.Io.Writer) !void {
     try writer.writeAll("};\n");
 }
 
-fn renderWrappers(self: *Self, writer: *std.Io.Writer) !void {
+fn renderWrappers(this: *Self, writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\pub fn CommandFlagsMixin(comptime CommandFlags: type) type {
         \\    return struct {
@@ -898,10 +839,10 @@ fn renderWrappers(self: *Self, writer: *std.Io.Writer) !void {
         \\            }
         \\            return result;
         \\        }
-        \\        pub fn complement(self: CommandFlags) CommandFlags {
+        \\        pub fn complement(this: CommandFlags) CommandFlags {
         \\            var result: CommandFlags = .{};
         \\            inline for (@typeInfo(CommandFlags).@"struct".fields) |field| {
-        \\                @field(result, field.name) = !@field(self, field.name);
+        \\                @field(result, field.name) = !@field(this, field.name);
         \\            }
         \\            return result;
         \\        }
@@ -924,11 +865,11 @@ fn renderWrappers(self: *Self, writer: *std.Io.Writer) !void {
         \\}
         \\
     );
-    try self.renderWrappersOfDispatchType(writer, .base);
-    try self.renderWrappersOfDispatchType(writer, .instance);
+    try this.renderWrappersOfDispatchType(writer, .base);
+    try this.renderWrappersOfDispatchType(writer, .instance);
 }
 
-fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_type: CommandDispatchType) !void {
+fn renderWrappersOfDispatchType(this: *Self, writer: *std.Io.Writer, dispatch_type: CommandDispatchType) !void {
     const name = switch (dispatch_type) {
         .base => "Base",
         .instance => "Instance",
@@ -938,10 +879,10 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
         \\pub const {0s}CommandFlags = packed struct {{
         \\
     , .{name});
-    for (self.registry.decls) |decl| {
+    for (this.registry.decls) |decl| {
         // If the target type does not exist, it was likely an empty enum -
         // assume spec is correct and that this was not a function alias.
-        const decl_type = self.resolveAlias(decl.decl_type) catch continue;
+        const decl_type = this.resolveAlias(decl.decl_type) catch continue;
         const command = switch (decl_type) {
             .command => |cmd| cmd,
             else => continue,
@@ -949,7 +890,7 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
 
         if (classifyCommandDispatch(decl.name, command) == dispatch_type) {
             try writer.writeAll("    ");
-            try self.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
+            try this.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
             try writer.writeAll(": bool = false,\n");
         }
     }
@@ -959,10 +900,10 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
         \\    return switch (tag) {{
         \\
     , .{name});
-    for (self.registry.decls) |decl| {
+    for (this.registry.decls) |decl| {
         // If the target type does not exist, it was likely an empty enum -
         // assume spec is correct and that this was not a function alias.
-        const decl_type = self.resolveAlias(decl.decl_type) catch continue;
+        const decl_type = this.resolveAlias(decl.decl_type) catch continue;
         const command = switch (decl_type) {
             .command => |cmd| cmd,
             else => continue,
@@ -970,9 +911,9 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
 
         if (classifyCommandDispatch(decl.name, command) == dispatch_type) {
             try writer.writeAll((" " ** 8) ++ ".");
-            try self.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
+            try this.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
             try writer.writeAll(" => ");
-            try self.renderCommandPtrName(writer, decl.name);
+            try this.renderCommandPtrName(writer, decl.name);
             try writer.writeAll(",\n");
         }
     }
@@ -983,10 +924,10 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
         \\    return switch(tag) {{
         \\
     , .{name});
-    for (self.registry.decls) |decl| {
+    for (this.registry.decls) |decl| {
         // If the target type does not exist, it was likely an empty enum -
         // assume spec is correct and that this was not a function alias.
-        const decl_type = self.resolveAlias(decl.decl_type) catch continue;
+        const decl_type = this.resolveAlias(decl.decl_type) catch continue;
         const command = switch (decl_type) {
             .command => |cmd| cmd,
             else => continue,
@@ -994,7 +935,7 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
 
         if (classifyCommandDispatch(decl.name, command) == dispatch_type) {
             try writer.writeAll((" " ** 8) ++ ".");
-            try self.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
+            try this.writeIdentifierWithCase(writer, .camel, trimXrNamespace(decl.name));
             try writer.print(
                 \\ => "{s}",
                 \\
@@ -1054,12 +995,12 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
         \\
     , .{name});
 
-    try self.renderWrapperLoader(writer, dispatch_type);
+    try this.renderWrapperLoader(writer, dispatch_type);
 
-    for (self.registry.decls) |decl| {
+    for (this.registry.decls) |decl| {
         // If the target type does not exist, it was likely an empty enum -
         // assume spec is correct and that this was not a function alias.
-        const decl_type = self.resolveAlias(decl.decl_type) catch continue;
+        const decl_type = this.resolveAlias(decl.decl_type) catch continue;
         const command = switch (decl_type) {
             .command => |cmd| cmd,
             else => continue,
@@ -1072,7 +1013,7 @@ fn renderWrappersOfDispatchType(self: *Self, writer: *std.Io.Writer, dispatch_ty
         // alias like `const old = new;`. This ensures that OpenXR bindings generated
         // for newer versions of openxr can still invoke extension behavior on older
         // implementations.
-        try self.renderWrapper(writer, decl.name, command);
+        try this.renderWrapper(writer, decl.name, command);
     }
 
     try writer.writeAll("};}\n");
@@ -1093,26 +1034,26 @@ fn renderWrapperLoader(_: *Self, writer: *std.Io.Writer, dispatch_type: CommandD
 
     try writer.print(
         \\pub fn load({[params]s}) error{{CommandLoadFailure}}!Self {{
-        \\    var self: Self = undefined;
+        \\    var this: Self = undefined;
         \\    inline for (std.meta.fields(Dispatch)) |field| {{
         \\        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
         \\        var cmd_ptr: PfnVoidFunction = undefined;
         \\        const result: Result = loader({[first_arg]s}, name, &cmd_ptr);
         \\        if (result != .success) return error.CommandLoadFailure;
-        \\        @field(self.dispatch, field.name) = @ptrCast(cmd_ptr);
+        \\        @field(this.dispatch, field.name) = @ptrCast(cmd_ptr);
         \\    }}
-        \\    return self;
+        \\    return this;
         \\}}
         \\pub fn loadNoFail({[params]s}) Self {{
-        \\    var self: Self = undefined;
+        \\    var this: Self = undefined;
         \\    inline for (std.meta.fields(Dispatch)) |field| {{
         \\        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
         \\        var cmd_ptr: PfnVoidFunction = undefined;
         \\        if (loader({[first_arg]s}, name, &cmd_ptr)) {{
-        \\          @field(self.dispatch, field.name) = @ptrCast(cmd_ptr);
+        \\          @field(this.dispatch, field.name) = @ptrCast(cmd_ptr);
         \\        }}
         \\    }}
-        \\    return self;
+        \\    return this;
         \\}}
     , .{ .params = params, .first_arg = loader_first_arg });
 }
@@ -1125,20 +1066,20 @@ fn derefName(name: []const u8) []const u8 {
         name;
 }
 
-fn renderWrapperPrototype(self: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command, returns: []const ReturnValue) !void {
+fn renderWrapperPrototype(this: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command, returns: []const ReturnValue) !void {
     try writer.writeAll("pub fn ");
-    try self.writeIdentifierWithCase(writer, .camel, trimXrNamespace(name));
-    try writer.writeAll("(self: Self, ");
+    try this.writeIdentifierWithCase(writer, .camel, trimXrNamespace(name));
+    try writer.writeAll("(this: Self, ");
 
     for (command.params) |param| {
         // This parameter is returned instead.
-        if ((try self.classifyParam(param)) == .out_pointer) {
+        if ((try this.classifyParam(param)) == .out_pointer) {
             continue;
         }
 
-        try self.writeIdentifierWithCase(writer, .snake, param.name);
+        try this.writeIdentifierWithCase(writer, .snake, param.name);
         try writer.writeAll(": ");
-        try self.renderTypeInfo(writer, param.param_type);
+        try this.renderTypeInfo(writer, param.param_type);
         try writer.writeAll(", ");
     }
 
@@ -1146,35 +1087,35 @@ fn renderWrapperPrototype(self: *Self, writer: *std.Io.Writer, name: []const u8,
 
     const returns_xr_result = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "XrResult");
     if (returns_xr_result) {
-        try self.renderErrorSetName(writer, name);
+        try this.renderErrorSetName(writer, name);
         try writer.writeByte('!');
     }
 
     if (returns.len == 1) {
-        try self.renderTypeInfo(writer, returns[0].return_value_type);
+        try this.renderTypeInfo(writer, returns[0].return_value_type);
     } else if (returns.len > 1) {
-        try self.renderReturnStructName(writer, name);
+        try this.renderReturnStructName(writer, name);
     } else {
         try writer.writeAll("void");
     }
 }
 
-fn renderWrapperCall(self: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command, returns: []const ReturnValue) !void {
-    try writer.writeAll("self.dispatch.");
-    try self.writeIdentifier(writer, name);
+fn renderWrapperCall(this: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command, returns: []const ReturnValue) !void {
+    try writer.writeAll("this.dispatch.");
+    try this.writeIdentifier(writer, name);
     try writer.writeAll("(");
 
     for (command.params) |param| {
-        switch (try self.classifyParam(param)) {
+        switch (try this.classifyParam(param)) {
             .out_pointer => {
                 try writer.writeByte('&');
                 if (returns.len > 1) {
                     try writer.writeAll("return_values.");
                 }
-                try self.writeIdentifierWithCase(writer, .snake, derefName(param.name));
+                try this.writeIdentifierWithCase(writer, .snake, derefName(param.name));
             },
             .bitflags, .in_pointer, .in_out_pointer, .buffer_len, .mut_buffer_len, .other => {
-                try self.writeIdentifierWithCase(writer, .snake, param.name);
+                try this.writeIdentifierWithCase(writer, .snake, param.name);
             },
         }
 
@@ -1183,8 +1124,8 @@ fn renderWrapperCall(self: *Self, writer: *std.Io.Writer, name: []const u8, comm
     try writer.writeAll(")");
 }
 
-fn extractReturns(self: *Self, command: Registry.Command) ![]const ReturnValue {
-    var returns = std.array_list.Managed(ReturnValue).init(self.allocator);
+fn extractReturns(this: *Self, command: Registry.Command) ![]const ReturnValue {
+    var returns = std.array_list.Managed(ReturnValue).init(this.allocator);
 
     if (command.return_type.* == .name) {
         const return_name = command.return_type.name;
@@ -1212,7 +1153,7 @@ fn extractReturns(self: *Self, command: Registry.Command) ![]const ReturnValue {
     }
 
     for (command.params) |param| {
-        if ((try self.classifyParam(param)) == .out_pointer) {
+        if ((try this.classifyParam(param)) == .out_pointer) {
             try returns.append(.{
                 .name = derefName(param.name),
                 .return_value_type = param.param_type.pointer.child.*,
@@ -1224,61 +1165,61 @@ fn extractReturns(self: *Self, command: Registry.Command) ![]const ReturnValue {
     return try returns.toOwnedSlice();
 }
 
-fn renderReturnStructName(self: *Self, writer: *std.Io.Writer, command_name: []const u8) !void {
-    try self.writeIdentifierFmt(writer, "{s}Result", .{trimXrNamespace(command_name)});
+fn renderReturnStructName(this: *Self, writer: *std.Io.Writer, command_name: []const u8) !void {
+    try this.writeIdentifierFmt(writer, "{s}Result", .{trimXrNamespace(command_name)});
 }
 
-fn renderErrorSetName(self: *Self, writer: *std.Io.Writer, name: []const u8) !void {
-    try self.writeIdentifierWithCase(writer, .title, trimXrNamespace(name));
+fn renderErrorSetName(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
+    try this.writeIdentifierWithCase(writer, .title, trimXrNamespace(name));
     try writer.writeAll("Error");
 }
 
-fn renderReturnStruct(self: *Self, writer: *std.Io.Writer, command_name: []const u8, returns: []const ReturnValue) !void {
+fn renderReturnStruct(this: *Self, writer: *std.Io.Writer, command_name: []const u8, returns: []const ReturnValue) !void {
     try writer.writeAll("pub const ");
-    try self.renderReturnStructName(writer, command_name);
+    try this.renderReturnStructName(writer, command_name);
     try writer.writeAll(" = struct {\n");
     for (returns) |ret| {
-        try self.writeIdentifierWithCase(writer, .snake, ret.name);
+        try this.writeIdentifierWithCase(writer, .snake, ret.name);
         try writer.writeAll(": ");
-        try self.renderTypeInfo(writer, ret.return_value_type);
+        try this.renderTypeInfo(writer, ret.return_value_type);
         try writer.writeAll(", ");
     }
     try writer.writeAll("};\n");
 }
 
-fn renderWrapper(self: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command) !void {
+fn renderWrapper(this: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command) !void {
     const returns_xr_result = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "XrResult");
     const returns_void = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "void");
 
-    const returns = try self.extractReturns(command);
+    const returns = try this.extractReturns(command);
 
     if (returns.len > 1) {
-        try self.renderReturnStruct(writer, name, returns);
+        try this.renderReturnStruct(writer, name, returns);
     }
 
     if (returns_xr_result) {
         try writer.writeAll("pub const ");
-        try self.renderErrorSetName(writer, name);
+        try this.renderErrorSetName(writer, name);
         try writer.writeAll(" = ");
-        try self.renderErrorSet(writer, command.error_codes);
+        try this.renderErrorSet(writer, command.error_codes);
         try writer.writeAll(";\n");
     }
 
-    try self.renderWrapperPrototype(writer, name, command, returns);
+    try this.renderWrapperPrototype(writer, name, command, returns);
 
     if (returns.len == 1 and returns[0].origin == .inner_return_value) {
         try writer.writeAll("{\n\n");
 
         if (returns_xr_result) {
             try writer.writeAll("const result = ");
-            try self.renderWrapperCall(writer, name, command, returns);
+            try this.renderWrapperCall(writer, name, command, returns);
             try writer.writeAll(";\n");
 
-            try self.renderErrorSwitch(writer, "result", command);
+            try this.renderErrorSwitch(writer, "result", command);
             try writer.writeAll("return result;\n");
         } else {
             try writer.writeAll("return ");
-            try self.renderWrapperCall(writer, name, command, returns);
+            try this.renderWrapperCall(writer, name, command, returns);
             try writer.writeAll(";\n");
         }
 
@@ -1289,22 +1230,22 @@ fn renderWrapper(self: *Self, writer: *std.Io.Writer, name: []const u8, command:
     try writer.writeAll("{\n");
     if (returns.len == 1) {
         try writer.writeAll("var ");
-        try self.writeIdentifierWithCase(writer, .snake, returns[0].name);
+        try this.writeIdentifierWithCase(writer, .snake, returns[0].name);
         try writer.writeAll(": ");
-        try self.renderTypeInfo(writer, returns[0].return_value_type);
+        try this.renderTypeInfo(writer, returns[0].return_value_type);
         try writer.writeAll(" = undefined;\n");
     } else if (returns.len > 1) {
         try writer.writeAll("var return_values: ");
-        try self.renderReturnStructName(writer, name);
+        try this.renderReturnStructName(writer, name);
         try writer.writeAll(" = undefined;\n");
     }
 
     if (returns_xr_result) {
         try writer.writeAll("const result = ");
-        try self.renderWrapperCall(writer, name, command, returns);
+        try this.renderWrapperCall(writer, name, command, returns);
         try writer.writeAll(";\n");
 
-        try self.renderErrorSwitch(writer, "result", command);
+        try this.renderErrorSwitch(writer, "result", command);
         if (command.success_codes.len > 1) {
             try writer.writeAll("return_values.result = result;\n");
         }
@@ -1312,13 +1253,13 @@ fn renderWrapper(self: *Self, writer: *std.Io.Writer, name: []const u8, command:
         if (!returns_void) {
             try writer.writeAll("return_values.return_value = ");
         }
-        try self.renderWrapperCall(writer, name, command, returns);
+        try this.renderWrapperCall(writer, name, command, returns);
         try writer.writeAll(";\n");
     }
 
     if (returns.len == 1) {
         try writer.writeAll("return ");
-        try self.writeIdentifierWithCase(writer, .snake, returns[0].name);
+        try this.writeIdentifierWithCase(writer, .snake, returns[0].name);
         try writer.writeAll(";\n");
     } else if (returns.len > 1) {
         try writer.writeAll("return return_values;\n");
@@ -1327,79 +1268,94 @@ fn renderWrapper(self: *Self, writer: *std.Io.Writer, name: []const u8, command:
     try writer.writeAll("}\n");
 }
 
-fn renderErrorSwitch(self: *Self, writer: *std.Io.Writer, result_var: []const u8, command: Registry.Command) !void {
+fn renderErrorSwitch(this: *Self, writer: *std.Io.Writer, result_var: []const u8, command: Registry.Command) !void {
     try writer.writeAll("switch (");
-    try self.writeIdentifier(writer, result_var);
+    try this.writeIdentifier(writer, result_var);
     try writer.writeAll(") {\n");
 
     for (command.success_codes) |success| {
         try writer.writeAll("Result.");
-        try self.renderEnumFieldName(writer, "XrResult", success);
+        try this.renderEnumFieldName(writer, "XrResult", success);
         try writer.writeAll(" => {},");
     }
 
     for (command.error_codes) |err| {
         try writer.writeAll("Result.");
-        try self.renderEnumFieldName(writer, "XrResult", err);
+        try this.renderEnumFieldName(writer, "XrResult", err);
         try writer.writeAll(" => return error.");
-        try self.renderResultAsErrorName(writer, err);
+        try this.renderResultAsErrorName(writer, err);
         try writer.writeAll(", ");
     }
 
     try writer.writeAll("else => return error.Unknown,}\n");
 }
 
-fn renderErrorSet(self: *Self, writer: *std.Io.Writer, errors: []const []const u8) !void {
+fn renderErrorSet(this: *Self, writer: *std.Io.Writer, errors: []const []const u8) !void {
     try writer.writeAll("error{");
     for (errors) |name| {
-        try self.renderResultAsErrorName(writer, name);
+        try this.renderResultAsErrorName(writer, name);
         try writer.writeAll(", ");
     }
     try writer.writeAll("Unknown, }");
 }
 
-fn renderResultAsErrorName(self: *Self, writer: *std.Io.Writer, name: []const u8) !void {
+fn renderResultAsErrorName(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
     const error_prefix = "XR_ERROR_";
     if (mem.startsWith(u8, name, error_prefix)) {
-        try self.writeIdentifierWithCase(writer, .title, name[error_prefix.len..]);
+        try this.writeIdentifierWithCase(writer, .title, name[error_prefix.len..]);
     } else {
         // Apparently some commands (XrAcquireProfilingLockInfoKHR) return
         // success codes as error...
-        try self.writeIdentifierWithCase(writer, .title, trimXrNamespace(name));
+        try this.writeIdentifierWithCase(writer, .title, trimXrNamespace(name));
     }
 }
 
-fn getOrCreateBuffer(self: *@This(), name: []const u8) !*std.array_list.Managed(u8) {
-    if (self.moduleFileMap.get(name)) |buf| {
-        return buf;
-    } else {
-        const buf = try self.allocator.create(std.array_list.Managed(u8));
-        buf.* = .init(self.allocator);
-        try self.moduleFileMap.put(name, buf);
-        return buf;
+// fn getOrCreateBuffer(this: *@This(), name: []const u8) !*std.array_list.Managed(u8) {
+//     if (this.moduleFileMap.get(name)) |buf| {
+//         return buf;
+//     } else {
+//         const buf = try this.allocator.create(std.array_list.Managed(u8));
+//         buf.* = .init(this.allocator);
+//         try this.moduleFileMap.put(name, buf);
+//         return buf;
+//     }
+// }
+
+pub fn render(this: *Self) !void {
+    {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        try writer.writeAll(@embedFile("template/xr.zig"));
+
+        try writer.writeByte(0);
+        try writer.flush();
+        try this.moduleFileMap.put("xr.zig", try allocating.toOwnedSlice());
     }
-}
+    {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
 
-pub fn render(self: *Self) !void {
-    var list = try self.getOrCreateBuffer("xr.zig");
-    var buf: [1024]u8 = undefined;
-    var w = list.writer().adaptToNewApi(&buf);
-    var writer = &w.new_interface;
+        try writer.writeAll(@embedFile("template/preamble.zig"));
 
-    try writer.writeAll(preamble);
+        for (this.registry.api_constants) |api_constant| {
+            try this.renderApiConstant(writer, api_constant);
+        }
 
-    for (self.registry.api_constants) |api_constant| {
-        try self.renderApiConstant(writer, api_constant);
+        for (this.registry.decls) |decl| {
+            try this.renderDecl(writer, decl);
+        }
+
+        try this.renderCommandPtrs(writer);
+        // try this.renderExtensionInfo(writer);
+        // try this.renderWrappers(writer);
+
+        try writer.writeByte(0);
+        try writer.flush();
+        try this.moduleFileMap.put("core.zig", try allocating.toOwnedSlice());
     }
-
-    for (self.registry.decls) |decl| {
-        try self.renderDecl(writer, decl);
-    }
-
-    try self.renderCommandPtrs(writer);
-    try self.renderExtensionInfo(writer);
-    try self.renderWrappers(writer);
-
-    try writer.writeByte(0);
-    try writer.flush();
 }

@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
     // const generated = b.addLibrary(.{
     //     .name = "generated",
     //     .root_module = b.addModule("generated", .{
-    //         .root_source_file = b.path("zig-out/src/xr.zig"),
+    //         .root_source_file = b.path("zig-out/src/xr/xr.zig"),
     //         .target = target,
     //     }),
     // });

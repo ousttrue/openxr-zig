@@ -7,10 +7,21 @@ pub const api_constants_name = "API Constants";
 pub const Value = union(enum) {
     expr: []const u8,
     version: [3][]const u8,
+
+    pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        switch (this) {
+            .expr => |expr| try writer.print("{s}", .{expr}),
+            .version => |v| try writer.print("{s}.{s}.{s}", .{ v[0], v[1], v[2] }),
+        }
+    }
 };
 
 name: []const u8,
 value: Value,
+
+pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writer.print("[{s} => {f}]", .{ this.name, this.value });
+}
 
 pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
     const enums = blk: {
