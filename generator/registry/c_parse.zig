@@ -1,11 +1,11 @@
 const std = @import("std");
-const registry = @import("registry.zig");
+const Registry = @import("Registry.zig");
 const xml = @import("xml.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const testing = std.testing;
-const ArraySize = registry.Array.ArraySize;
-const TypeInfo = registry.TypeInfo;
+const ArraySize = Registry.Array.ArraySize;
+const TypeInfo = Registry.TypeInfo;
 
 pub const Token = struct {
     kind: Kind,
@@ -241,7 +241,7 @@ pub const XmlCTokenizer = struct {
 };
 
 // TYPEDEF = kw_typedef DECLARATION ';'
-pub fn parseTypedef(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !registry.Declaration {
+pub fn parseTypedef(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !Registry.Declaration {
     const first_tok = (try xctok.next()) orelse return error.UnexpectedEof;
 
     _ = switch (first_tok.kind) {
@@ -252,7 +252,7 @@ pub fn parseTypedef(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: 
                 return error.InvalidSyntax;
             }
 
-            return registry.Declaration{
+            return Registry.Declaration{
                 .name = decl.name orelse return error.MissingTypeIdentifier,
                 .decl_type = .{ .typedef = decl.decl_type },
             };
@@ -266,7 +266,7 @@ pub fn parseTypedef(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: 
             const name = try xctok.expect(.name);
             _ = try xctok.expect(.rparen);
 
-            return registry.Declaration{
+            return Registry.Declaration{
                 .name = name.text,
                 .decl_type = .{ .typedef = TypeInfo{ .name = "uint64_t" } },
             };
@@ -279,9 +279,9 @@ pub fn parseTypedef(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: 
 }
 
 // MEMBER = DECLARATION (':' int)?
-pub fn parseMember(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !registry.Container.Field {
+pub fn parseMember(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !Registry.Container.Field {
     const decl = try parseDeclaration(allocator, xctok, ptrs_optional);
-    var field = registry.Container.Field{
+    var field = Registry.Container.Field{
         .name = decl.name orelse return error.MissingTypeIdentifier,
         .field_type = decl.decl_type,
         .bits = null,
@@ -308,7 +308,7 @@ pub fn parseMember(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: b
     return field;
 }
 
-pub fn parseParamOrProto(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !registry.Declaration {
+pub fn parseParamOrProto(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optional: bool) !Registry.Declaration {
     var decl = try parseDeclaration(allocator, xctok, ptrs_optional);
     if (try xctok.peek()) |_| {
         return error.InvalidSyntax;
@@ -332,7 +332,7 @@ pub fn parseParamOrProto(allocator: Allocator, xctok: *XmlCTokenizer, ptrs_optio
         else => {},
     }
 
-    return registry.Declaration{
+    return Registry.Declaration{
         .name = decl.name orelse return error.MissingTypeIdentifier,
         .decl_type = .{ .typedef = decl.decl_type },
     };
@@ -445,7 +445,7 @@ fn parseFnPtrSuffix(allocator: Allocator, xctok: *XmlCTokenizer, return_type: Ty
         .name = name.text,
         .decl_type = .{
             .command_ptr = .{
-                .params = &[_]registry.Command.Param{},
+                .params = &[_]Registry.Command.Param{},
                 .return_type = return_type_heap,
                 .success_codes = &[_][]const u8{},
                 .error_codes = &[_][]const u8{},
@@ -467,7 +467,7 @@ fn parseFnPtrSuffix(allocator: Allocator, xctok: *XmlCTokenizer, return_type: Ty
     // There is no good way to estimate the number of parameters beforehand.
     // Fortunately, there are usually a relatively low number of parameters to a function pointer,
     // so an ArrayList backed by an arena allocator is good enough.
-    var params = std.array_list.Managed(registry.Command.Param).init(allocator);
+    var params = std.array_list.Managed(Registry.Command.Param).init(allocator);
     try params.append(.{
         .name = first_param.name.?,
         .param_type = first_param.decl_type,

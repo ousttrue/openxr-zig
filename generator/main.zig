@@ -1,59 +1,18 @@
 const std = @import("std");
-
-const xml = @import("xml.zig");
-const IdRenderer = @import("IdRenderer.zig");
-
-const EnumFieldMerger = @import("EnumFieldMerger.zig");
-const Renderer = @import("Renderer.zig");
-const loadXml = @import("registry_loader.zig").loadXml;
-
 const Args = @import("Args.zig");
+const Registry = @import("registry/Registry.zig");
+const Renderer = @import("Renderer.zig");
 
 pub fn main() !void {
     const args = try Args.init(std.os.argv);
 
-    var stderr_buf: [1024]u8 = undefined;
-    var stderr = std.fs.File.stderr().writer(&stderr_buf);
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
     defer _ = gpa.detectLeaks();
-    const xml_src = std.fs.cwd().readFileAlloc(
-        allocator,
-        args.xml_path,
-        std.math.maxInt(usize),
-    ) catch |err| {
-        try stderr.interface.print(
-            "Error: Failed to open input file '{s}' ({s})\n",
-            .{ args.xml_path, @errorName(err) },
-        );
-        return;
-    };
-    defer allocator.free(xml_src);
-
+    const allocator = gpa.allocator();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    var parser = xml.Parser.init(arena.allocator(), xml_src);
-    const doc = try parser.parse();
 
-    var registry = try loadXml(arena.allocator(), doc.root);
-    // std.log.debug("{f}", .{parsed});
-
-    // gen.removePromotedExtensions();
-    {
-        var write_index: usize = 0;
-        for (registry.extensions) |ext| {
-            if (ext.promoted_to == .none) {
-                registry.extensions[write_index] = ext;
-                write_index += 1;
-            }
-        }
-        registry.extensions.len = write_index;
-    }
-
-    // Solve `registry.declarations` according to `registry.extensions` and `registry.features`.
-    var merger = EnumFieldMerger.init(arena.allocator(), &registry);
-    try merger.merge();
+    const registry = try Registry.load(arena.allocator(), args.xml_path);
 
     var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();

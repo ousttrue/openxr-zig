@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const registry = @import("registry.zig");
+const Registry = @import("registry/Registry.zig");
 
 pub const Error = std.io.Writer.Error || error{WriteFailed} || error{OutOfMemory};
 
@@ -130,7 +130,7 @@ pub const SegmentIterator = struct {
 tags: []const []const u8,
 text_cache: std.array_list.Managed(u8),
 
-pub fn init(allocator: Allocator, registry_tags: []const registry.Tag) @This() {
+pub fn init(allocator: Allocator, registry_tags: []const Registry.Tag) @This() {
     const tags = allocator.alloc([]const u8, registry_tags.len) catch @panic("OOM");
     for (tags, registry_tags) |*tag, registry_tag| {
         tag.* = registry_tag.name;

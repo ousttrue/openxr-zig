@@ -1,15 +1,15 @@
 const std = @import("std");
-const reg = @import("registry.zig");
+const Registry = @import("Registry.zig");
 
-const EnumExtensionMap = std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(reg.Enum.Field));
+const EnumExtensionMap = std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Registry.Enum.Field));
 const FieldSet = std.StringArrayHashMapUnmanaged(void);
 
 arena: std.mem.Allocator,
-registry: *reg.Registry,
+registry: *Registry,
 enum_extensions: EnumExtensionMap,
 field_set: FieldSet,
 
-pub fn init(arena: std.mem.Allocator, registry: *reg.Registry) @This() {
+pub fn init(arena: std.mem.Allocator, registry: *Registry) @This() {
     return .{
         .arena = arena,
         .registry = registry,
@@ -18,16 +18,16 @@ pub fn init(arena: std.mem.Allocator, registry: *reg.Registry) @This() {
     };
 }
 
-fn putEnumExtension(self: *@This(), enum_name: []const u8, field: reg.Enum.Field) !void {
+fn putEnumExtension(self: *@This(), enum_name: []const u8, field: Registry.Enum.Field) !void {
     const res = try self.enum_extensions.getOrPut(self.arena, enum_name);
     if (!res.found_existing) {
-        res.value_ptr.* = std.ArrayListUnmanaged(reg.Enum.Field){};
+        res.value_ptr.* = std.ArrayListUnmanaged(Registry.Enum.Field){};
     }
 
     try res.value_ptr.append(self.arena, field);
 }
 
-fn addRequires(self: *@This(), reqs: []const reg.Require) !void {
+fn addRequires(self: *@This(), reqs: []const Registry.Require) !void {
     for (reqs) |req| {
         for (req.extends) |enum_ext| {
             try self.putEnumExtension(enum_ext.extends, enum_ext.field);
@@ -35,14 +35,14 @@ fn addRequires(self: *@This(), reqs: []const reg.Require) !void {
     }
 }
 
-fn mergeEnumFields(self: *@This(), name: []const u8, base_enum: *reg.Enum) !void {
+fn mergeEnumFields(self: *@This(), name: []const u8, base_enum: *Registry.Enum) !void {
     // If there are no extensions for this enum, assume its valid.
     const extensions = self.enum_extensions.get(name) orelse return;
 
     self.field_set.clearRetainingCapacity();
 
     const n_fields_upper_bound = base_enum.fields.len + extensions.items.len;
-    const new_fields = try self.arena.alloc(reg.Enum.Field, n_fields_upper_bound);
+    const new_fields = try self.arena.alloc(Registry.Enum.Field, n_fields_upper_bound);
     var i: usize = 0;
 
     for (base_enum.fields) |field| {
