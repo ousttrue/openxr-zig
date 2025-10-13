@@ -47,8 +47,7 @@ pub fn main() !void {
     }
 }
 
-fn formatZigSource(allocator: std.mem.Allocator, content: []u8) ![]const u8 {
-    const src: [:0]u8 = @ptrCast(std.mem.sliceTo(content, 0));
+fn formatZigSource(allocator: std.mem.Allocator, src: [:0]u8) ![]const u8 {
     var tree = try std.zig.Ast.parse(allocator, src, .zig);
     defer tree.deinit(allocator);
     for (tree.errors) |e| {

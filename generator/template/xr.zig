@@ -12,7 +12,7 @@ pub fn getProcs(
         const name: [*:0]const u8 = @ptrCast("xrCreateInstance\x00");
         var cmd_ptr: core.PfnVoidFunction = undefined;
         const result: core.Result = loader(core.Instance.null_handle, name, &cmd_ptr);
-        std.debug.assert(result == .success);
+        if (result != .success) return error.CreateInstanceCommandLoadFailure;
         const xrCreateInstance: core.PfnCreateInstance = @ptrCast(cmd_ptr);
 
         const res = xrCreateInstance(create_info, instance);
