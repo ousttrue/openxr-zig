@@ -1,7 +1,7 @@
 const std = @import("std");
 const Registry = @import("registry/Registry.zig");
 const IdRenderer = @import("IdRenderer.zig");
-const cparse = @import("registry/c_parse.zig");
+const CTokenizer = @import("registry/CTokenizer.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const CaseStyle = IdRenderer.CaseStyle;
@@ -418,8 +418,8 @@ fn renderApiConstantExpr(self: *Self, writer: *std.Io.Writer, expr: []const u8) 
     else
         expr;
 
-    var tokenizer = cparse.CTokenizer{ .source = adjusted_expr };
-    var peeked: ?cparse.Token = null;
+    var tokenizer = CTokenizer{ .source = adjusted_expr };
+    var peeked: ?CTokenizer.Token = null;
     while (true) {
         const tok = peeked orelse (try tokenizer.next()) orelse break;
         peeked = null;

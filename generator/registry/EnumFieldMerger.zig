@@ -1,13 +1,10 @@
 const std = @import("std");
 const Registry = @import("Registry.zig");
 
-const EnumExtensionMap = std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Registry.Enum.Field));
-const FieldSet = std.StringArrayHashMapUnmanaged(void);
-
 arena: std.mem.Allocator,
 registry: *Registry,
-enum_extensions: EnumExtensionMap,
-field_set: FieldSet,
+enum_extensions: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Registry.Enum.Field)),
+field_set: std.StringArrayHashMapUnmanaged(void),
 
 pub fn init(arena: std.mem.Allocator, registry: *Registry) @This() {
     return .{

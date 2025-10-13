@@ -1,10 +1,7 @@
 const std = @import("std");
 const xml = @import("xml.zig");
 const EnumFieldMerger = @import("EnumFieldMerger.zig");
-const cparse = @import("c_parse.zig");
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
+const XmlCTokenizer = @import("XmlCTokenizer.zig");
 
 pub const Declaration = struct {
     name: []const u8,
@@ -127,12 +124,12 @@ pub const Pointer = struct {
 };
 
 pub const Array = struct {
-    pub const ArraySize = union(enum) {
+    pub const Size = union(enum) {
         int: usize,
         alias: []const u8, // Field size is given by an api constant
     };
 
-    size: ArraySize,
+    size: Size,
     child: *TypeInfo,
 };
 
@@ -211,7 +208,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     var parser = xml.Parser.init(allocator, xml_src);
     const doc = try parser.parse();
 
-    var registry =  @This(){
+    var registry = @This(){
         .decls = try parseDeclarations(allocator, doc.root),
         .api_constants = try parseApiConstants(allocator, doc.root),
         .tags = try parseTags(allocator, doc.root),
@@ -240,7 +237,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
 
 const api_constants_name = "API Constants";
 
-fn parseDeclarations(allocator: Allocator, root: *xml.Element) ![]Declaration {
+fn parseDeclarations(allocator: std.mem.Allocator, root: *xml.Element) ![]Declaration {
     const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
     const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
 
@@ -254,21 +251,21 @@ fn parseDeclarations(allocator: Allocator, root: *xml.Element) ![]Declaration {
     return decls[0..count];
 }
 
-fn parseType(allocator: Allocator, ty: *xml.Element) !?Declaration {
+fn parseType(allocator: std.mem.Allocator, ty: *xml.Element) !?Declaration {
     if (ty.getAttribute("category")) |category| {
-        if (mem.eql(u8, category, "bitmask")) {
+        if (std.mem.eql(u8, category, "bitmask")) {
             return try parseBitmaskType(ty);
-        } else if (mem.eql(u8, category, "handle")) {
+        } else if (std.mem.eql(u8, category, "handle")) {
             return try parseHandleType(ty);
-        } else if (mem.eql(u8, category, "basetype")) {
+        } else if (std.mem.eql(u8, category, "basetype")) {
             return try parseBaseType(allocator, ty);
-        } else if (mem.eql(u8, category, "struct")) {
+        } else if (std.mem.eql(u8, category, "struct")) {
             return try parseContainer(allocator, ty, false);
-        } else if (mem.eql(u8, category, "union")) {
+        } else if (std.mem.eql(u8, category, "union")) {
             return try parseContainer(allocator, ty, true);
-        } else if (mem.eql(u8, category, "funcpointer")) {
+        } else if (std.mem.eql(u8, category, "funcpointer")) {
             return try parseFuncPointer(allocator, ty);
-        } else if (mem.eql(u8, category, "enum")) {
+        } else if (std.mem.eql(u8, category, "enum")) {
             if (try parseEnumAlias(ty)) |decl| {
                 return decl;
             }
@@ -279,7 +276,7 @@ fn parseType(allocator: Allocator, ty: *xml.Element) !?Declaration {
     return null;
 }
 
-fn parseTypes(allocator: Allocator, out: []Declaration, types_elem: *xml.Element) !usize {
+fn parseTypes(allocator: std.mem.Allocator, out: []Declaration, types_elem: *xml.Element) !usize {
     var i: usize = 0;
     var it = types_elem.findChildrenByTag("type");
     while (it.next()) |ty| {
@@ -293,7 +290,7 @@ fn parseTypes(allocator: Allocator, out: []Declaration, types_elem: *xml.Element
 
 fn parseForeigntype(ty: *xml.Element) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
-    const depends = ty.getAttribute("requires") orelse if (mem.eql(u8, name, "int"))
+    const depends = ty.getAttribute("requires") orelse if (std.mem.eql(u8, name, "int"))
         "openxr_platform_defines" // for some reason, int doesn't depend on xr_platform (but the other c types do)
     else
         return error.InvalidRegistry;
@@ -330,8 +327,8 @@ fn parseHandleType(ty: *xml.Element) !Declaration {
     } else {
         const name = ty.getCharData("name") orelse return error.InvalidRegistry;
         const handle_type = ty.getCharData("type") orelse return error.InvalidRegistry;
-        const dispatchable = mem.eql(u8, handle_type, "XR_DEFINE_HANDLE");
-        if (!dispatchable and !mem.eql(u8, handle_type, "XR_DEFINE_NON_DISPATCHABLE_HANDLE")) {
+        const dispatchable = std.mem.eql(u8, handle_type, "XR_DEFINE_HANDLE");
+        if (!dispatchable and !std.mem.eql(u8, handle_type, "XR_DEFINE_NON_DISPATCHABLE_HANDLE")) {
             return error.InvalidRegistry;
         }
 
@@ -347,11 +344,11 @@ fn parseHandleType(ty: *xml.Element) !Declaration {
     }
 }
 
-fn parseBaseType(allocator: Allocator, ty: *xml.Element) !Declaration {
+fn parseBaseType(allocator: std.mem.Allocator, ty: *xml.Element) !Declaration {
     const name = ty.getCharData("name") orelse return error.InvalidRegistry;
     if (ty.getCharData("type")) |_| {
-        var tok = cparse.XmlCTokenizer.init(ty);
-        return try cparse.parseTypedef(allocator, &tok, false);
+        var tok = XmlCTokenizer.init(ty);
+        return try tok.parseTypedef(allocator, false);
     } else {
         // Either ANativeWindow, AHardwareBuffer or CAMetalLayer. The latter has a lot of
         // macros, which is why this part is not built into the xml/c parser.
@@ -362,7 +359,7 @@ fn parseBaseType(allocator: Allocator, ty: *xml.Element) !Declaration {
     }
 }
 
-fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !Declaration {
+fn parseContainer(allocator: std.mem.Allocator, ty: *xml.Element, is_union: bool) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
 
     if (ty.getAttribute("alias")) |alias| {
@@ -378,18 +375,18 @@ fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !Decla
     var it = ty.findChildrenByTag("member");
     var maybe_stype: ?[]const u8 = null;
     while (it.next()) |member| {
-        var xctok = cparse.XmlCTokenizer.init(member);
-        members[i] = try cparse.parseMember(allocator, &xctok, false);
-        if (mem.eql(u8, members[i].name, "type")) {
+        var xctok = XmlCTokenizer.init(member);
+        members[i] = try xctok.parseMember(allocator, false);
+        if (std.mem.eql(u8, members[i].name, "type")) {
             if (member.getAttribute("values")) |stype| {
                 maybe_stype = stype;
             }
         }
 
         if (member.getAttribute("optional")) |optionals| {
-            var optional_it = mem.splitScalar(u8, optionals, ',');
+            var optional_it = std.mem.splitScalar(u8, optionals, ',');
             if (optional_it.next()) |first_optional| {
-                members[i].is_optional = mem.eql(u8, first_optional, "true");
+                members[i].is_optional = std.mem.eql(u8, first_optional, "true");
             } else {
                 // Optional is empty, probably incorrect.
                 return error.InvalidRegistry;
@@ -418,7 +415,7 @@ fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !Decla
         try parsePointerMeta(.{ .container = members }, &member.field_type, member_elem);
 
         // next isn't always properly marked as optional, so just manually override it,
-        if (mem.eql(u8, member.name, "next")) {
+        if (std.mem.eql(u8, member.name, "next")) {
             member.field_type.pointer.is_optional = true;
         }
     }
@@ -436,9 +433,9 @@ fn parseContainer(allocator: Allocator, ty: *xml.Element, is_union: bool) !Decla
     };
 }
 
-fn parseFuncPointer(allocator: Allocator, ty: *xml.Element) !Declaration {
-    var xctok = cparse.XmlCTokenizer.init(ty);
-    return try cparse.parseTypedef(allocator, &xctok, true);
+fn parseFuncPointer(allocator: std.mem.Allocator, ty: *xml.Element) !Declaration {
+    var xctok = XmlCTokenizer.init(ty);
+    return try xctok.parseTypedef(allocator, true);
 }
 
 // For some reason, the DeclarationType cannot be passed to lenToPointer, as
@@ -454,7 +451,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.Poin
     switch (fields) {
         .command => |params| {
             for (params) |*param| {
-                if (mem.eql(u8, param.name, len)) {
+                if (std.mem.eql(u8, param.name, len)) {
                     param.is_buffer_len = true;
                     return .{ .{ .other_field = param.name }, false };
                 }
@@ -462,7 +459,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.Poin
         },
         .container => |members| {
             for (members) |*member| {
-                if (mem.eql(u8, member.name, len)) {
+                if (std.mem.eql(u8, member.name, len)) {
                     member.is_buffer_len = true;
                     return .{ .{ .other_field = member.name }, member.is_optional };
                 }
@@ -470,7 +467,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.Poin
         },
     }
 
-    if (mem.eql(u8, len, "null-terminated")) {
+    if (std.mem.eql(u8, len, "null-terminated")) {
         return .{ .zero_terminated, false };
     } else {
         return .{ .many, false };
@@ -479,7 +476,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.Poin
 
 fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *xml.Element) !void {
     if (elem.getAttribute("len")) |lens| {
-        var it = mem.splitScalar(u8, lens, ',');
+        var it = std.mem.splitScalar(u8, lens, ',');
         var current_type_info = type_info;
         while (current_type_info.* == .pointer) {
             // TODO: Check altlen
@@ -501,11 +498,11 @@ fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *xml.Element) !v
     }
 
     if (elem.getAttribute("optional")) |optionals| {
-        var it = mem.splitScalar(u8, optionals, ',');
+        var it = std.mem.splitScalar(u8, optionals, ',');
         var current_type_info = type_info;
         while (current_type_info.* == .pointer) {
             if (it.next()) |current_optional| {
-                current_type_info.pointer.is_optional = mem.eql(u8, current_optional, "true");
+                current_type_info.pointer.is_optional = std.mem.eql(u8, current_optional, "true");
             } else {
                 current_type_info.pointer.is_optional = true;
                 // There is no information for this pointer, probably incorrect.
@@ -514,7 +511,7 @@ fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *xml.Element) !v
 
             current_type_info = current_type_info.pointer.child;
         }
-    } else if (mem.eql(u8, elem.getCharData("name") orelse "", "next")) {
+    } else if (std.mem.eql(u8, elem.getCharData("name") orelse "", "next")) {
         type_info.pointer.is_optional = true;
     }
 }
@@ -531,12 +528,12 @@ fn parseEnumAlias(elem: *xml.Element) !?Declaration {
     return null;
 }
 
-fn parseEnums(allocator: Allocator, out: []Declaration, root: *xml.Element) !usize {
+fn parseEnums(allocator: std.mem.Allocator, out: []Declaration, root: *xml.Element) !usize {
     var i: usize = 0;
     var it = root.findChildrenByTag("enums");
     while (it.next()) |enums| {
         const name = enums.getAttribute("name") orelse return error.InvalidRegistry;
-        if (mem.eql(u8, name, api_constants_name)) {
+        if (std.mem.eql(u8, name, api_constants_name)) {
             continue;
         }
 
@@ -550,11 +547,11 @@ fn parseEnums(allocator: Allocator, out: []Declaration, root: *xml.Element) !usi
     return i;
 }
 
-fn parseEnumFields(allocator: Allocator, elem: *xml.Element) !Enum {
+fn parseEnumFields(allocator: std.mem.Allocator, elem: *xml.Element) !Enum {
     // TODO: `type` was added recently, fall back to checking endswith FlagBits for older versions?
     const enum_type = elem.getAttribute("type") orelse return error.InvalidRegistry;
-    const is_bitmask = mem.eql(u8, enum_type, "bitmask");
-    if (!is_bitmask and !mem.eql(u8, enum_type, "enum")) {
+    const is_bitmask = std.mem.eql(u8, enum_type, "bitmask");
+    if (!is_bitmask and !std.mem.eql(u8, enum_type, "enum")) {
         return error.InvalidRegistry;
     }
 
@@ -575,8 +572,8 @@ fn parseEnumFields(allocator: Allocator, elem: *xml.Element) !Enum {
 
 fn parseEnumField(field: *xml.Element) !Enum.Field {
     const is_compat_alias = if (field.getAttribute("comment")) |comment|
-        mem.eql(u8, comment, "Backwards-compatible alias containing a typo") or
-            mem.eql(u8, comment, "Deprecated name for backwards compatibility")
+        std.mem.eql(u8, comment, "Backwards-compatible alias containing a typo") or
+            std.mem.eql(u8, comment, "Deprecated name for backwards compatibility")
     else
         false;
 
@@ -591,7 +588,7 @@ fn parseEnumField(field: *xml.Element) !Enum.Field {
         //     given by the `extnumber` field (in the case of a feature), or given in the parent <extension>
         //     tag. In the latter case its passed via the `ext_nr` parameter.
         if (field.getAttribute("value")) |value| {
-            if (mem.startsWith(u8, value, "0x")) {
+            if (std.mem.startsWith(u8, value, "0x")) {
                 break :blk .{ .bit_vector = try std.fmt.parseInt(i32, value[2..], 16) };
             } else {
                 break :blk .{ .int = try std.fmt.parseInt(i32, value, 10) };
@@ -611,7 +608,7 @@ fn parseEnumField(field: *xml.Element) !Enum.Field {
     };
 }
 
-fn parseCommands(allocator: Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
+fn parseCommands(allocator: std.mem.Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
     var i: usize = 0;
     var it = commands_elem.findChildrenByTag("command");
     while (it.next()) |elem| {
@@ -622,14 +619,14 @@ fn parseCommands(allocator: Allocator, out: []Declaration, commands_elem: *xml.E
     return i;
 }
 
-fn splitCommaAlloc(allocator: Allocator, text: []const u8) ![][]const u8 {
+fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
     var n_codes: usize = 1;
     for (text) |c| {
         if (c == ',') n_codes += 1;
     }
 
     const codes = try allocator.alloc([]const u8, n_codes);
-    var it = mem.splitScalar(u8, text, ',');
+    var it = std.mem.splitScalar(u8, text, ',');
     for (codes) |*code| {
         code.* = it.next().?;
     }
@@ -637,7 +634,7 @@ fn splitCommaAlloc(allocator: Allocator, text: []const u8) ![][]const u8 {
     return codes;
 }
 
-fn parseCommand(allocator: Allocator, elem: *xml.Element) !Declaration {
+fn parseCommand(allocator: std.mem.Allocator, elem: *xml.Element) !Declaration {
     if (elem.getAttribute("alias")) |alias| {
         const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
         return Declaration{
@@ -647,16 +644,16 @@ fn parseCommand(allocator: Allocator, elem: *xml.Element) !Declaration {
     }
 
     const proto = elem.findChildByTag("proto") orelse return error.InvalidRegistry;
-    var proto_xctok = cparse.XmlCTokenizer.init(proto);
-    const command_decl = try cparse.parseParamOrProto(allocator, &proto_xctok, false);
+    var proto_xctok = XmlCTokenizer.init(proto);
+    const command_decl = try proto_xctok.parseParamOrProto(allocator, false);
 
     var params = try allocator.alloc(Command.Param, elem.children.len);
 
     var i: usize = 0;
     var it = elem.findChildrenByTag("param");
     while (it.next()) |param| {
-        var xctok = cparse.XmlCTokenizer.init(param);
-        const decl = try cparse.parseParamOrProto(allocator, &xctok, false);
+        var xctok = XmlCTokenizer.init(param);
+        const decl = try xctok.parseParamOrProto(allocator, false);
         params[i] = .{
             .name = decl.name,
             .param_type = decl.decl_type.typedef,
@@ -679,7 +676,7 @@ fn parseCommand(allocator: Allocator, elem: *xml.Element) !Declaration {
         &[_][]const u8{};
 
     for (success_codes, 0..) |code, session_i| {
-        if (mem.eql(u8, code, "XR_SESSION_LOSS_PENDING")) {
+        if (std.mem.eql(u8, code, "XR_SESSION_LOSS_PENDING")) {
             var move_i = session_i + 1;
             while (move_i < success_codes.len) : (move_i += 1) {
                 success_codes[move_i - 1] = success_codes[move_i];
@@ -689,7 +686,7 @@ fn parseCommand(allocator: Allocator, elem: *xml.Element) !Declaration {
 
             const old_error_codes = error_codes;
             error_codes = try allocator.alloc([]const u8, error_codes.len + 1);
-            mem.copyForwards([]const u8, error_codes, old_error_codes);
+            std.mem.copyForwards([]const u8, error_codes, old_error_codes);
             error_codes[error_codes.len - 1] = code;
             allocator.free(old_error_codes);
             break;
@@ -717,12 +714,12 @@ fn parseCommand(allocator: Allocator, elem: *xml.Element) !Declaration {
     };
 }
 
-fn parseApiConstants(allocator: Allocator, root: *xml.Element) ![]ApiConstant {
+fn parseApiConstants(allocator: std.mem.Allocator, root: *xml.Element) ![]ApiConstant {
     const enums = blk: {
         var it = root.findChildrenByTag("enums");
         while (it.next()) |child| {
             const name = child.getAttribute("name") orelse continue;
-            if (mem.eql(u8, name, api_constants_name)) {
+            if (std.mem.eql(u8, name, api_constants_name)) {
                 break :blk child;
             }
         }
@@ -736,7 +733,7 @@ fn parseApiConstants(allocator: Allocator, root: *xml.Element) ![]ApiConstant {
         var it = types.findChildrenByTag("type");
         while (it.next()) |ty| {
             if (ty.getAttribute("category")) |category| {
-                if (mem.eql(u8, category, "define")) {
+                if (std.mem.eql(u8, category, "define")) {
                     n_defines += 1;
                 }
             }
@@ -755,8 +752,8 @@ fn parseApiConstants(allocator: Allocator, root: *xml.Element) ![]ApiConstant {
                 if (e.getAttribute("offset") != null and e.getAttribute("extends") != null) continue;
 
                 const name = e.getAttribute("name") orelse continue;
-                if (mem.endsWith(u8, name, "SPEC_VERSION")) continue;
-                if (mem.endsWith(u8, name, "EXTENSION_NAME")) continue;
+                if (std.mem.endsWith(u8, name, "SPEC_VERSION")) continue;
+                if (std.mem.endsWith(u8, name, "EXTENSION_NAME")) continue;
 
                 n_extension_defines += 1;
             }
@@ -794,19 +791,19 @@ fn parseDefines(types: *xml.Element, out: []ApiConstant) !usize {
     var it = types.findChildrenByTag("type");
     while (it.next()) |ty| {
         const category = ty.getAttribute("category") orelse continue;
-        if (!mem.eql(u8, category, "define")) {
+        if (!std.mem.eql(u8, category, "define")) {
             continue;
         }
 
         const name = ty.getCharData("name") orelse continue;
-        if (mem.eql(u8, name, "XR_CURRENT_API_VERSION")) {
-            var xctok = cparse.XmlCTokenizer.init(ty);
+        if (std.mem.eql(u8, name, "XR_CURRENT_API_VERSION")) {
+            var xctok = XmlCTokenizer.init(ty);
             out[i] = .{
                 .name = name,
-                .value = .{ .version = cparse.parseVersion(&xctok) catch continue },
+                .value = .{ .version = xctok.parseVersion() catch continue },
             };
         } else {
-            const expr = mem.trim(u8, ty.children[2].char_data, " ");
+            const expr = std.mem.trim(u8, ty.children[2].char_data, " ");
 
             // TODO this doesn't work with all #defines yet (need to handle hex, U/L suffix, etc.)
             _ = std.fmt.parseInt(i32, expr, 10) catch continue;
@@ -833,8 +830,8 @@ fn parseExtensionDefines(extensions: *xml.Element, out: []ApiConstant) !usize {
             if (e.getAttribute("offset") != null and e.getAttribute("extends") != null) continue;
 
             const name = e.getAttribute("name") orelse continue;
-            if (mem.endsWith(u8, name, "SPEC_VERSION")) continue;
-            if (mem.endsWith(u8, name, "EXTENSION_NAME")) continue;
+            if (std.mem.endsWith(u8, name, "SPEC_VERSION")) continue;
+            if (std.mem.endsWith(u8, name, "EXTENSION_NAME")) continue;
 
             out[i] = .{
                 .name = name,
@@ -848,7 +845,7 @@ fn parseExtensionDefines(extensions: *xml.Element, out: []ApiConstant) !usize {
     return i;
 }
 
-fn parseTags(allocator: Allocator, root: *xml.Element) ![]Tag {
+fn parseTags(allocator: std.mem.Allocator, root: *xml.Element) ![]Tag {
     var tags_elem = root.findChildByTag("tags") orelse return error.InvalidRegistry;
     const tags = try allocator.alloc(Tag, tags_elem.children.len);
 
@@ -866,7 +863,7 @@ fn parseTags(allocator: Allocator, root: *xml.Element) ![]Tag {
     return tags[0..i];
 }
 
-fn parseFeatures(allocator: Allocator, root: *xml.Element) ![]Feature {
+fn parseFeatures(allocator: std.mem.Allocator, root: *xml.Element) ![]Feature {
     var it = root.findChildrenByTag("feature");
     var count: usize = 0;
     while (it.next()) |_| count += 1;
@@ -882,7 +879,7 @@ fn parseFeatures(allocator: Allocator, root: *xml.Element) ![]Feature {
     return features;
 }
 
-fn parseFeature(allocator: Allocator, feature: *xml.Element) !Feature {
+fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !Feature {
     const name = feature.getAttribute("name") orelse return error.InvalidRegistry;
     const feature_level = blk: {
         const number = feature.getAttribute("number") orelse return error.InvalidRegistry;
@@ -920,7 +917,7 @@ fn parseEnumExtension(elem: *xml.Element, parent_extnumber: ?u31) !?Require.Enum
         const value = blk: {
             const abs_value = enumExtOffsetToValue(actual_extnumber, offset);
             if (elem.getAttribute("dir")) |dir| {
-                if (mem.eql(u8, dir, "-")) {
+                if (std.mem.eql(u8, dir, "-")) {
                     break :blk -@as(i32, abs_value);
                 } else {
                     return error.InvalidRegistry;
@@ -950,18 +947,18 @@ fn enumExtOffsetToValue(extnumber: u31, offset: u31) u31 {
     return extension_value_base + (extnumber - 1) * extension_block + offset;
 }
 
-fn parseRequire(allocator: Allocator, require: *xml.Element, extnumber: ?u31) !Require {
+fn parseRequire(allocator: std.mem.Allocator, require: *xml.Element, extnumber: ?u31) !Require {
     var n_extends: usize = 0;
     var n_types: usize = 0;
     var n_commands: usize = 0;
 
     var it = require.elements();
     while (it.next()) |elem| {
-        if (mem.eql(u8, elem.tag, "enum")) {
+        if (std.mem.eql(u8, elem.tag, "enum")) {
             n_extends += 1;
-        } else if (mem.eql(u8, elem.tag, "type")) {
+        } else if (std.mem.eql(u8, elem.tag, "type")) {
             n_types += 1;
-        } else if (mem.eql(u8, elem.tag, "command")) {
+        } else if (std.mem.eql(u8, elem.tag, "command")) {
             n_commands += 1;
         }
     }
@@ -976,15 +973,15 @@ fn parseRequire(allocator: Allocator, require: *xml.Element, extnumber: ?u31) !R
 
     it = require.elements();
     while (it.next()) |elem| {
-        if (mem.eql(u8, elem.tag, "enum")) {
+        if (std.mem.eql(u8, elem.tag, "enum")) {
             if (try parseEnumExtension(elem, extnumber)) |ext| {
                 extends[i_extends] = ext;
                 i_extends += 1;
             }
-        } else if (mem.eql(u8, elem.tag, "type")) {
+        } else if (std.mem.eql(u8, elem.tag, "type")) {
             types[i_types] = elem.getAttribute("name") orelse return error.InvalidRegistry;
             i_types += 1;
-        } else if (mem.eql(u8, elem.tag, "command")) {
+        } else if (std.mem.eql(u8, elem.tag, "command")) {
             commands[i_commands] = elem.getAttribute("name") orelse return error.InvalidRegistry;
             i_commands += 1;
         }
@@ -992,7 +989,7 @@ fn parseRequire(allocator: Allocator, require: *xml.Element, extnumber: ?u31) !R
 
     const required_feature_level = blk: {
         const feature_level = require.getAttribute("feature") orelse break :blk null;
-        if (!mem.startsWith(u8, feature_level, "XR_VERSION_")) {
+        if (!std.mem.startsWith(u8, feature_level, "XR_VERSION_")) {
             return error.InvalidRegistry;
         }
 
@@ -1008,7 +1005,7 @@ fn parseRequire(allocator: Allocator, require: *xml.Element, extnumber: ?u31) !R
     };
 }
 
-fn parseExtensions(allocator: Allocator, root: *xml.Element) ![]Extension {
+fn parseExtensions(allocator: std.mem.Allocator, root: *xml.Element) ![]Extension {
     const extensions_elem = root.findChildByTag("extensions") orelse return error.InvalidRegistry;
 
     const extensions = try allocator.alloc(Extension, extensions_elem.children.len);
@@ -1017,7 +1014,7 @@ fn parseExtensions(allocator: Allocator, root: *xml.Element) ![]Extension {
     while (it.next()) |extension| {
         // Some extensions (in particular 94) are disabled, so just skip them
         if (extension.getAttribute("supported")) |supported| {
-            if (mem.eql(u8, supported, "disabled")) {
+            if (std.mem.eql(u8, supported, "disabled")) {
                 continue;
             }
         }
@@ -1036,7 +1033,7 @@ fn findExtVersion(extension: *xml.Element) !u32 {
         while (enum_it.next()) |e| {
             const name = e.getAttribute("name") orelse continue;
             const value = e.getAttribute("value") orelse continue;
-            if (mem.endsWith(u8, name, "_SPEC_VERSION")) {
+            if (std.mem.endsWith(u8, name, "_SPEC_VERSION")) {
                 return try std.fmt.parseInt(u32, value, 10);
             }
         }
@@ -1045,7 +1042,7 @@ fn findExtVersion(extension: *xml.Element) !u32 {
     return error.InvalidRegistry;
 }
 
-fn parseExtension(allocator: Allocator, extension: *xml.Element) !Extension {
+fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !Extension {
     const name = extension.getAttribute("name") orelse return error.InvalidRegistry;
     const platform = extension.getAttribute("platform");
     const version = try findExtVersion(extension);
@@ -1060,7 +1057,7 @@ fn parseExtension(allocator: Allocator, extension: *xml.Element) !Extension {
 
     const promoted_to: Extension.Promotion = blk: {
         const promotedto = extension.getAttribute("promotedto") orelse break :blk .none;
-        if (mem.startsWith(u8, promotedto, "XR_VERSION_")) {
+        if (std.mem.startsWith(u8, promotedto, "XR_VERSION_")) {
             const feature_level = try splitFeatureLevel(promotedto["XR_VERSION_".len..], "_");
 
             break :blk .{ .feature = feature_level };
@@ -1076,9 +1073,9 @@ fn parseExtension(allocator: Allocator, extension: *xml.Element) !Extension {
 
     const ext_type: ?Extension.ExtensionType = blk: {
         const ext_type_str = extension.getAttribute("type") orelse break :blk null;
-        if (mem.eql(u8, ext_type_str, "instance")) {
+        if (std.mem.eql(u8, ext_type_str, "instance")) {
             break :blk .instance;
-        } else if (mem.eql(u8, ext_type_str, "device")) {
+        } else if (std.mem.eql(u8, ext_type_str, "device")) {
             break :blk .device;
         } else {
             return error.InvalidRegistry;
@@ -1112,7 +1109,7 @@ fn parseExtension(allocator: Allocator, extension: *xml.Element) !Extension {
 }
 
 fn splitFeatureLevel(ver: []const u8, split: []const u8) !FeatureLevel {
-    var it = mem.splitSequence(u8, ver, split);
+    var it = std.mem.splitSequence(u8, ver, split);
 
     const major = it.next() orelse return error.InvalidFeatureLevel;
     const minor = it.next() orelse return error.InvalidFeatureLevel;
