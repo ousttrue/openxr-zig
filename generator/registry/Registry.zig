@@ -3,6 +3,8 @@ const xml = @import("xml.zig");
 const EnumFieldMerger = @import("EnumFieldMerger.zig");
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
 pub const ApiConstant = @import("ApiConstant.zig");
+const FeatureLevel = @import("FeatureLevel.zig");
+pub const Enum = @import("Enum.zig");
 
 pub const Declaration = struct {
     name: []const u8,
@@ -56,26 +58,6 @@ pub const Container = struct {
     extends: ?[]const []const u8,
     fields: []Field,
     is_union: bool,
-};
-
-pub const Enum = struct {
-    pub const Value = union(enum) {
-        bitpos: u5, // 1 << bitpos
-        bit_vector: i32, // Combined flags & some vendor IDs
-        int: i32,
-        alias: struct {
-            name: []const u8,
-            is_compat_alias: bool,
-        },
-    };
-
-    pub const Field = struct {
-        name: []const u8,
-        value: Value,
-    };
-
-    fields: []Field,
-    is_bitmask: bool,
 };
 
 pub const Bitmask = struct {
@@ -169,11 +151,6 @@ pub const Require = struct {
     commands: []const []const u8,
     required_feature_level: ?FeatureLevel,
     required_extension: ?[]const u8,
-};
-
-pub const FeatureLevel = struct {
-    major: u32,
-    minor: u32,
 };
 
 decls: []Declaration,
@@ -528,73 +505,12 @@ fn parseEnums(allocator: std.mem.Allocator, out: []Declaration, root: *xml.Eleme
 
         out[i] = .{
             .name = name,
-            .decl_type = .{ .enumeration = try parseEnumFields(allocator, enums) },
+            .decl_type = .{ .enumeration = try Enum.parse(allocator, enums) },
         };
         i += 1;
     }
 
     return i;
-}
-
-fn parseEnumFields(allocator: std.mem.Allocator, elem: *xml.Element) !Enum {
-    // TODO: `type` was added recently, fall back to checking endswith FlagBits for older versions?
-    const enum_type = elem.getAttribute("type") orelse return error.InvalidRegistry;
-    const is_bitmask = std.mem.eql(u8, enum_type, "bitmask");
-    if (!is_bitmask and !std.mem.eql(u8, enum_type, "enum")) {
-        return error.InvalidRegistry;
-    }
-
-    const fields = try allocator.alloc(Enum.Field, elem.children.len);
-
-    var i: usize = 0;
-    var it = elem.findChildrenByTag("enum");
-    while (it.next()) |field| {
-        fields[i] = try parseEnumField(field);
-        i += 1;
-    }
-
-    return Enum{
-        .fields = fields[0..i],
-        .is_bitmask = is_bitmask,
-    };
-}
-
-fn parseEnumField(field: *xml.Element) !Enum.Field {
-    const is_compat_alias = if (field.getAttribute("comment")) |comment|
-        std.mem.eql(u8, comment, "Backwards-compatible alias containing a typo") or
-            std.mem.eql(u8, comment, "Deprecated name for backwards compatibility")
-    else
-        false;
-
-    const name = field.getAttribute("name") orelse return error.InvalidRegistry;
-    const value: Enum.Value = blk: {
-        // An enum variant's value could be defined by any of the following attributes:
-        // - value: Straight up value of the enum variant, in either base 10 or 16 (prefixed with 0x).
-        // - bitpos: Used for bitmasks, and can also be set in extensions.
-        // - alias: The field is an alias of another variant within the same enum.
-        // - offset: Used with features and extensions, where a non-bitpos value is added to an enum.
-        //     The value is given by `1e9 + (extr_nr - 1) * 1e3 + offset`, where `ext_nr` is either
-        //     given by the `extnumber` field (in the case of a feature), or given in the parent <extension>
-        //     tag. In the latter case its passed via the `ext_nr` parameter.
-        if (field.getAttribute("value")) |value| {
-            if (std.mem.startsWith(u8, value, "0x")) {
-                break :blk .{ .bit_vector = try std.fmt.parseInt(i32, value[2..], 16) };
-            } else {
-                break :blk .{ .int = try std.fmt.parseInt(i32, value, 10) };
-            }
-        } else if (field.getAttribute("bitpos")) |bitpos| {
-            break :blk .{ .bitpos = try std.fmt.parseInt(u5, bitpos, 10) };
-        } else if (field.getAttribute("alias")) |alias| {
-            break :blk .{ .alias = .{ .name = alias, .is_compat_alias = is_compat_alias } };
-        } else {
-            return error.InvalidRegistry;
-        }
-    };
-
-    return Enum.Field{
-        .name = name,
-        .value = value,
-    };
 }
 
 fn parseCommands(allocator: std.mem.Allocator, out: []Declaration, commands_elem: *xml.Element) !usize {
@@ -741,7 +657,7 @@ fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !Feature {
     const name = feature.getAttribute("name") orelse return error.InvalidRegistry;
     const feature_level = blk: {
         const number = feature.getAttribute("number") orelse return error.InvalidRegistry;
-        break :blk try splitFeatureLevel(number, ".");
+        break :blk try FeatureLevel.splitFeatureLevel(number, ".");
     };
 
     var requires = try allocator.alloc(Require, feature.children.len);
@@ -795,7 +711,7 @@ fn parseEnumExtension(elem: *xml.Element, parent_extnumber: ?u31) !?Require.Enum
     return Require.EnumExtension{
         .extends = extends,
         .extnumber = parent_extnumber,
-        .field = try parseEnumField(elem),
+        .field = try Enum.Field.parse(elem),
     };
 }
 
@@ -851,7 +767,7 @@ fn parseRequire(allocator: std.mem.Allocator, require: *xml.Element, extnumber: 
             return error.InvalidRegistry;
         }
 
-        break :blk try splitFeatureLevel(feature_level["XR_VERSION_".len..], "_");
+        break :blk try FeatureLevel.splitFeatureLevel(feature_level["XR_VERSION_".len..], "_");
     };
 
     return Require{
@@ -909,14 +825,14 @@ fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !Extens
     // feature level: both seperately in each <require> tag, or using
     // the requiresCore attribute.
     const requires_core = if (extension.getAttribute("requiresCore")) |feature_level|
-        try splitFeatureLevel(feature_level, ".")
+        try FeatureLevel.splitFeatureLevel(feature_level, ".")
     else
         null;
 
     const promoted_to: Extension.Promotion = blk: {
         const promotedto = extension.getAttribute("promotedto") orelse break :blk .none;
         if (std.mem.startsWith(u8, promotedto, "XR_VERSION_")) {
-            const feature_level = try splitFeatureLevel(promotedto["XR_VERSION_".len..], "_");
+            const feature_level = try FeatureLevel.splitFeatureLevel(promotedto["XR_VERSION_".len..], "_");
 
             break :blk .{ .feature = feature_level };
         }
@@ -963,20 +879,5 @@ fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !Extens
         .platform = platform,
         .required_feature_level = requires_core,
         .requires = requires[0..i],
-    };
-}
-
-fn splitFeatureLevel(ver: []const u8, split: []const u8) !FeatureLevel {
-    var it = std.mem.splitSequence(u8, ver, split);
-
-    const major = it.next() orelse return error.InvalidFeatureLevel;
-    const minor = it.next() orelse return error.InvalidFeatureLevel;
-    if (it.next() != null) {
-        return error.InvalidFeatureLevel;
-    }
-
-    return FeatureLevel{
-        .major = try std.fmt.parseInt(u32, major, 10),
-        .minor = try std.fmt.parseInt(u32, minor, 10),
     };
 }
