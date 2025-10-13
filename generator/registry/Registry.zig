@@ -7,6 +7,7 @@ const FeatureLevel = @import("FeatureLevel.zig");
 pub const Enum = @import("Enum.zig");
 const Extension = @import("Extension.zig");
 pub const Require = @import("Require.zig");
+const Feature = @import("Feature.zig");
 
 pub const Declaration = struct {
     name: []const u8,
@@ -38,6 +39,24 @@ pub const Alias = struct {
 pub const Tag = struct {
     name: []const u8,
     author: []const u8,
+
+    fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+        var tags_elem = root.findChildByTag("tags") orelse return error.InvalidRegistry;
+        const tags = try allocator.alloc(@This(), tags_elem.children.len);
+
+        var i: usize = 0;
+        var it = tags_elem.findChildrenByTag("tag");
+        while (it.next()) |tag| {
+            tags[i] = .{
+                .name = tag.getAttribute("name") orelse return error.InvalidRegistry,
+                .author = tag.getAttribute("author") orelse return error.InvalidRegistry,
+            };
+
+            i += 1;
+        }
+
+        return tags[0..i];
+    }
 };
 
 pub const TypeInfo = union(enum) {
@@ -112,12 +131,6 @@ pub const Foreign = struct {
     depends: []const u8, // Either a header or openxr_platform_defines
 };
 
-pub const Feature = struct {
-    name: []const u8,
-    level: FeatureLevel, // from 'number'
-    requires: []Require,
-};
-
 decls: []Declaration,
 api_constants: []ApiConstant,
 tags: []Tag,
@@ -144,9 +157,9 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     var registry = @This(){
         .decls = try parseDeclarations(allocator, doc.root),
         .api_constants = try ApiConstant.parse(allocator, doc.root),
-        .tags = try parseTags(allocator, doc.root),
-        .features = try parseFeatures(allocator, doc.root),
-        .extensions = try Extension.parseExtensions(allocator, doc.root),
+        .tags = try Tag.parse(allocator, doc.root),
+        .features = try Feature.parse(allocator, doc.root),
+        .extensions = try Extension.parse(allocator, doc.root),
     };
 
     // gen.removePromotedExtensions();
@@ -581,61 +594,5 @@ fn parseCommand(allocator: std.mem.Allocator, elem: *xml.Element) !Declaration {
                 .error_codes = error_codes,
             },
         },
-    };
-}
-
-fn parseTags(allocator: std.mem.Allocator, root: *xml.Element) ![]Tag {
-    var tags_elem = root.findChildByTag("tags") orelse return error.InvalidRegistry;
-    const tags = try allocator.alloc(Tag, tags_elem.children.len);
-
-    var i: usize = 0;
-    var it = tags_elem.findChildrenByTag("tag");
-    while (it.next()) |tag| {
-        tags[i] = .{
-            .name = tag.getAttribute("name") orelse return error.InvalidRegistry,
-            .author = tag.getAttribute("author") orelse return error.InvalidRegistry,
-        };
-
-        i += 1;
-    }
-
-    return tags[0..i];
-}
-
-fn parseFeatures(allocator: std.mem.Allocator, root: *xml.Element) ![]Feature {
-    var it = root.findChildrenByTag("feature");
-    var count: usize = 0;
-    while (it.next()) |_| count += 1;
-
-    const features = try allocator.alloc(Feature, count);
-    var i: usize = 0;
-    it = root.findChildrenByTag("feature");
-    while (it.next()) |feature| {
-        features[i] = try parseFeature(allocator, feature);
-        i += 1;
-    }
-
-    return features;
-}
-
-fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !Feature {
-    const name = feature.getAttribute("name") orelse return error.InvalidRegistry;
-    const feature_level = blk: {
-        const number = feature.getAttribute("number") orelse return error.InvalidRegistry;
-        break :blk try FeatureLevel.splitFeatureLevel(number, ".");
-    };
-
-    var requires = try allocator.alloc(Require, feature.children.len);
-    var i: usize = 0;
-    var it = feature.findChildrenByTag("require");
-    while (it.next()) |require| {
-        requires[i] = try Require.parse(allocator, require, null);
-        i += 1;
-    }
-
-    return Feature{
-        .name = name,
-        .level = feature_level,
-        .requires = requires[0..i],
     };
 }

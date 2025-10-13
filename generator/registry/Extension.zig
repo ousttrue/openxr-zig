@@ -24,7 +24,7 @@ platform: ?[]const u8,
 required_feature_level: ?FeatureLevel,
 requires: []Require,
 
-pub fn parse(allocator: std.mem.Allocator, extension: *xml.Element) !@This() {
+pub fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !@This() {
     const name = extension.getAttribute("name") orelse return error.InvalidRegistry;
     const platform = extension.getAttribute("platform");
     const version = try findExtVersion(extension);
@@ -121,7 +121,7 @@ fn findExtVersion(extension: *xml.Element) !u32 {
     return error.InvalidRegistry;
 }
 
-pub fn parseExtensions(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
     const extensions_elem = root.findChildByTag("extensions") orelse return error.InvalidRegistry;
 
     const extensions = try allocator.alloc(@This(), extensions_elem.children.len);
@@ -135,7 +135,7 @@ pub fn parseExtensions(allocator: std.mem.Allocator, root: *xml.Element) ![]@Thi
             }
         }
 
-        extensions[i] = try @This().parse(allocator, extension);
+        extensions[i] = try parseExtension(allocator, extension);
         i += 1;
     }
 
