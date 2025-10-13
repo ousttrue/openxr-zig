@@ -22,6 +22,14 @@ pub fn main() !void {
     // for (registry.extensions) |extension| {
     //     std.log.debug("{f}", .{extension});
     // }
+    for (registry.features) |feature| {
+        std.log.debug("[feature: {s}]", .{feature.name});
+        //     for (feature.requires) |req| {
+        //         for (req.commands) |command| {
+        //             std.log.debug("{s}", .{command});
+        //         }
+        //     }
+    }
 
     var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();

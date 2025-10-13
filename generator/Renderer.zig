@@ -125,7 +125,7 @@ registry: *const Registry,
 id_renderer: IdRenderer,
 declarations_by_name: std.StringHashMap(*const Registry.DeclarationType),
 structure_types: std.StringHashMap(void),
-moduleFileMap: std.StringHashMap([]u8),
+moduleFileMap: std.StringHashMap([:0]u8),
 
 pub fn init(allocator: Allocator, registry: *const Registry) !Self {
     var declarations_by_name = std.StringHashMap(*const Registry.DeclarationType).init(allocator);
@@ -1328,18 +1328,6 @@ pub fn render(this: *Self) !void {
         var allocating = std.Io.Writer.Allocating.init(arena.allocator());
         var writer = &allocating.writer;
 
-        try writer.writeAll(@embedFile("template/xr.zig"));
-
-        try writer.writeByte(0);
-        try writer.flush();
-        try this.moduleFileMap.put("xr.zig", try allocating.toOwnedSlice());
-    }
-    {
-        var arena = std.heap.ArenaAllocator.init(this.allocator);
-        defer arena.deinit();
-        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
-        var writer = &allocating.writer;
-
         try writer.writeAll(@embedFile("template/preamble.zig"));
 
         for (this.registry.api_constants) |api_constant| {
@@ -1351,11 +1339,133 @@ pub fn render(this: *Self) !void {
         }
 
         try this.renderCommandPtrs(writer);
-        // try this.renderExtensionInfo(writer);
-        // try this.renderWrappers(writer);
 
-        try writer.writeByte(0);
-        try writer.flush();
-        try this.moduleFileMap.put("core.zig", try allocating.toOwnedSlice());
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            "core.zig",
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
     }
+
+    // features/*.zig
+    for (this.registry.features) |feature| {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        try writer.writeAll(
+            \\const core = @import("../core.zig");
+            \\
+            \\
+        );
+        for (feature.requires) |require| {
+            for (require.commands) |command| {
+                try writer.print("{s}: core.Pfn{s},\n", .{ command, command[2..] });
+            }
+        }
+
+        const module_file = try std.fmt.allocPrint(this.allocator, "features/{s}.zig", .{feature.name});
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            module_file,
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
+    }
+
+    // features/features.zig
+    {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        for (this.registry.features) |feature| {
+            try writer.print(
+                \\pub const {s} = @import("{s}.zig");
+                \\
+            , .{
+                feature.name, feature.name,
+            });
+        }
+
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            "features/features.zig",
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
+    }
+
+    // extensions/*.zig
+    for (this.registry.extensions) |extension| {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        try writer.writeAll(
+            \\const core = @import("../core.zig");
+            \\
+            \\
+        );
+        for (extension.requires) |require| {
+            for (require.commands) |command| {
+                try writer.print("{s}: core.Pfn{s},\n", .{ command, command[2..] });
+            }
+        }
+
+        const module_file = try std.fmt.allocPrint(this.allocator, "extensions/{s}.zig", .{extension.name});
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            module_file,
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
+    }
+
+    // extensions/extensions.zig
+    {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        for (this.registry.extensions) |extension| {
+            try writer.print(
+                \\pub const {s} = @import("{s}.zig");
+                \\
+            , .{
+                extension.name, extension.name,
+            });
+        }
+
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            "extensions/extensions.zig",
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
+    }
+
+    // xr.zig
+    {
+        var arena = std.heap.ArenaAllocator.init(this.allocator);
+        defer arena.deinit();
+        var allocating = std.Io.Writer.Allocating.init(arena.allocator());
+        var writer = &allocating.writer;
+
+        try writer.writeAll(
+            \\pub const features = @import("features/features.zig");
+            \\pub const extensions = @import("extensions/extensions.zig");
+            \\
+        );
+        try writer.writeAll(@embedFile("template/xr.zig"));
+
+        const slice = try allocating.toOwnedSlice();
+        try this.moduleFileMap.put(
+            "xr.zig",
+            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        );
+    }
+
+    // try this.renderExtensionInfo(writer);
+    // try this.renderWrappers(writer);
 }

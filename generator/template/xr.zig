@@ -1,33 +1,31 @@
-// This file is generated from the Khronos OpenXR XML API registry by openxr-zig
-
 const std = @import("std");
-const builtin = @import("builtin");
-const root = @import("root");
 pub const core = @import("core.zig");
 
-// pub fn FlagsMixin(comptime FlagsType: type) type {
-//     return struct {
-//         pub const IntType = Flags64;
-//         pub fn toInt(this: FlagsType) IntType {
-//             return @bitCast(this);
-//         }
-//         pub fn fromInt(flags: IntType) FlagsType {
-//             return @bitCast(flags);
-//         }
-//         pub fn merge(lhs: FlagsType, rhs: FlagsType) FlagsType {
-//             return fromInt(toInt(lhs) | toInt(rhs));
-//         }
-//         pub fn intersect(lhs: FlagsType, rhs: FlagsType) FlagsType {
-//             return fromInt(toInt(lhs) & toInt(rhs));
-//         }
-//         pub fn complement(this: FlagsType) FlagsType {
-//             return fromInt(~toInt(this));
-//         }
-//         pub fn subtract(lhs: FlagsType, rhs: FlagsType) FlagsType {
-//             return fromInt(toInt(lhs) & toInt(rhs.complement()));
-//         }
-//         pub fn contains(lhs: FlagsType, rhs: FlagsType) bool {
-//             return toInt(intersect(lhs, rhs)) == toInt(rhs);
-//         }
-//     };
-// }
+pub fn getProcs(
+    loader: anytype,
+    create_info: *const core.InstanceCreateInfo,
+    instance: *core.Instance,
+    table: anytype,
+) !void {
+    // load xrCreateInstance and execute
+    {
+        const name: [*:0]const u8 = @ptrCast("xrCreateInstance\x00");
+        var cmd_ptr: core.PfnVoidFunction = undefined;
+        const result: core.Result = loader(core.Instance.null_handle, name, &cmd_ptr);
+        std.debug.assert(result == .success);
+        const xrCreateInstance: core.PfnCreateInstance = @ptrCast(cmd_ptr);
+
+        const res = xrCreateInstance(create_info, instance);
+        if (res != core.Result.success) {
+            return error.xrCreateInstance;
+        }
+    }
+
+    inline for (std.meta.fields(@typeInfo(@TypeOf(table)).pointer.child)) |field| {
+        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
+        var cmd_ptr: core.PfnVoidFunction = undefined;
+        const result: core.Result = loader(instance.*, name, &cmd_ptr);
+        if (result != .success) return error.CommandLoadFailure;
+        @field(table, field.name) = @ptrCast(cmd_ptr);
+    }
+}

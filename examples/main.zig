@@ -1,42 +1,42 @@
 const std = @import("std");
-const xr = @import("openxr").core;
-const Allocator = std.mem.Allocator;
+const openxr = @import("openxr");
+const xr = openxr.core;
 
-const DispatchTable = struct {
-    xrDestroyInstance: xr.PfnDestroyInstance,
-};
+// fn load(
+//     loader: anytype,
+//     create_info: *const xr.InstanceCreateInfo,
+//     instance: *xr.Instance,
+//     table: anytype,
+// ) !void {
+//     // load xrCreateInstance and execute
+//     {
+//         const name: [*:0]const u8 = @ptrCast("xrCreateInstance\x00");
+//         var cmd_ptr: xr.PfnVoidFunction = undefined;
+//         const result: xr.Result = loader(xr.Instance.null_handle, name, &cmd_ptr);
+//         std.debug.assert(result == .success);
+//         const xrCreateInstance: xr.PfnCreateInstance = @ptrCast(cmd_ptr);
+//
+//         const res = xrCreateInstance(create_info, instance);
+//         if (res != xr.Result.success) {
+//             return error.xrCreateInstance;
+//         }
+//     }
+//
+//     // load other xrCreateInstance
+//     inline for (std.meta.fields(@typeInfo(@TypeOf(table)).pointer.child)) |field| {
+//         const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
+//         var cmd_ptr: xr.PfnVoidFunction = undefined;
+//         const result: xr.Result = loader(instance.*, name, &cmd_ptr);
+//         if (result != .success) return error.CommandLoadFailure;
+//         @field(table, field.name) = @ptrCast(cmd_ptr);
+//     }
+// }
 
-fn load(
-    loader: anytype,
-    create_info: *const xr.InstanceCreateInfo,
-    instance: *xr.Instance,
-    table: *DispatchTable,
-) !void {
-    // load xrCreateInstance and execute
-    {
-        const name: [*:0]const u8 = @ptrCast("xrCreateInstance\x00");
-        var cmd_ptr: xr.PfnVoidFunction = undefined;
-        const result: xr.Result = loader(xr.Instance.null_handle, name, &cmd_ptr);
-        std.debug.assert(result == .success);
-        const xrCreateInstance: xr.PfnCreateInstance = @ptrCast(cmd_ptr);
-
-        const res = xrCreateInstance(create_info, instance);
-        if (res != xr.Result.success) {
-            return error.xrCreateInstance;
-        }
-    }
-
-    // load other xrCreateInstance
-    inline for (std.meta.fields(DispatchTable)) |field| {
-        const name: [*:0]const u8 = @ptrCast(field.name ++ "\x00");
-        var cmd_ptr: xr.PfnVoidFunction = undefined;
-        const result: xr.Result = loader(instance.*, name, &cmd_ptr);
-        if (result != .success) return error.CommandLoadFailure;
-        @field(table, field.name) = @ptrCast(cmd_ptr);
-    }
-}
-
-pub extern fn xrGetInstanceProcAddr(instance: xr.Instance, procname: [*:0]const u8, function: *xr.PfnVoidFunction) xr.Result;
+pub extern fn xrGetInstanceProcAddr(
+    instance: xr.Instance,
+    procname: [*:0]const u8,
+    function: *xr.PfnVoidFunction,
+) xr.Result;
 
 pub fn main() !void {
     var create_info: xr.InstanceCreateInfo = .{
@@ -52,8 +52,8 @@ pub fn main() !void {
     _ = try std.fmt.bufPrintZ(&create_info.application_info.engine_name, "{s}", .{"openxr-zig-engine"});
 
     var instance: xr.Instance = undefined;
-    var dispatcher: DispatchTable = undefined;
-    try load(
+    var dispatcher: openxr.features.XR_VERSION_1_0 = undefined;
+    try openxr.getProcs(
         xrGetInstanceProcAddr,
         &create_info,
         &instance,
