@@ -2,11 +2,11 @@ const std = @import("std");
 const Registry = @import("registry/Registry.zig");
 const IdRenderer = @import("IdRenderer.zig");
 const CTokenizer = @import("registry/CTokenizer.zig");
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const CaseStyle = IdRenderer.CaseStyle;
 const Container = @import("registry/Container.zig");
 const c_types = @import("registry/c_types.zig");
+const Declaration = @import("registry/Declaration.zig");
+const ApiConstant = @import("registry/ApiConstant.zig");
+const Enum = @import("registry/Enum.zig");
 
 const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "void", @typeName(void) },
@@ -79,7 +79,7 @@ fn eqlIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
 pub fn trimXrNamespace(id: []const u8) []const u8 {
     const prefixes = [_][]const u8{ "XR_", "xr", "Xr", "PFN_xr" };
     for (prefixes) |prefix| {
-        if (mem.startsWith(u8, id, prefix)) {
+        if (std.mem.startsWith(u8, id, prefix)) {
             return id[prefix.len..];
         }
     }
@@ -122,15 +122,15 @@ const CommandDispatchType = enum {
     instance,
 };
 
-allocator: Allocator,
+allocator: std.mem.Allocator,
 registry: *const Registry,
 id_renderer: IdRenderer,
-declarations_by_name: std.StringHashMap(*const Registry.DeclarationType),
+declarations_by_name: std.StringHashMap(*const Declaration.DeclarationType),
 structure_types: std.StringHashMap(void),
 moduleFileMap: std.StringHashMap([:0]u8),
 
-pub fn init(allocator: Allocator, registry: *const Registry) !Self {
-    var declarations_by_name = std.StringHashMap(*const Registry.DeclarationType).init(allocator);
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry) !Self {
+    var declarations_by_name = std.StringHashMap(*const Declaration.DeclarationType).init(allocator);
     errdefer declarations_by_name.deinit();
 
     for (registry.decls) |*decl| {
@@ -177,7 +177,7 @@ fn writeIdentifier(_: *Self, writer: *std.Io.Writer, id: []const u8) !void {
     try IdRenderer.writeIdentifier(writer, id);
 }
 
-fn writeIdentifierWithCase(this: *Self, writer: *std.Io.Writer, case: CaseStyle, id: []const u8) !void {
+fn writeIdentifierWithCase(this: *Self, writer: *std.Io.Writer, case: IdRenderer.CaseStyle, id: []const u8) !void {
     try this.id_renderer.renderWithCase(writer, case, id);
 }
 
@@ -186,7 +186,7 @@ fn writeIdentifierFmt(this: *Self, writer: *std.Io.Writer, comptime fmt: []const
 }
 
 fn extractEnumFieldName(this: *Self, enum_name: []const u8, field_name: []const u8) ![]const u8 {
-    const adjusted_enum_name = if (mem.eql(u8, enum_name, "XrStructureType"))
+    const adjusted_enum_name = if (std.mem.eql(u8, enum_name, "XrStructureType"))
         "XrType"
     else
         this.id_renderer.stripAuthorTag(enum_name);
@@ -208,7 +208,7 @@ fn extractBitflagName(this: *Self, name: []const u8) ?BitflagName {
     const tag = this.id_renderer.getAuthorTag(name);
     const base_name = if (tag) |tag_name| name[0 .. name.len - tag_name.len] else name;
 
-    if (!mem.endsWith(u8, base_name, "FlagBits")) {
+    if (!std.mem.endsWith(u8, base_name, "FlagBits")) {
         return null;
     }
 
@@ -222,15 +222,15 @@ fn isFlags(this: *Self, name: []const u8) bool {
     const tag = this.id_renderer.getAuthorTag(name);
     const base_name = if (tag) |tag_name| name[0 .. name.len - tag_name.len] else name;
 
-    return mem.endsWith(u8, base_name, "Flags64");
+    return std.mem.endsWith(u8, base_name, "Flags64");
 }
 
-fn resolveDeclaration(this: *Self, name: []const u8) ?Registry.DeclarationType {
+fn resolveDeclaration(this: *Self, name: []const u8) ?Declaration.DeclarationType {
     const decl = this.declarations_by_name.get(name) orelse return null;
     return this.resolveAlias(decl.*) catch return null;
 }
 
-fn resolveAlias(this: *Self, start_decl: Registry.DeclarationType) !Registry.DeclarationType {
+fn resolveAlias(this: *Self, start_decl: Declaration.DeclarationType) !Declaration.DeclarationType {
     var decl = start_decl;
     while (true) {
         const name = switch (decl) {
@@ -243,7 +243,7 @@ fn resolveAlias(this: *Self, start_decl: Registry.DeclarationType) !Registry.Dec
     }
 }
 
-fn isInOutPointer(this: *Self, ptr: Registry.Pointer) !bool {
+fn isInOutPointer(this: *Self, ptr: c_types.Pointer) !bool {
     if (ptr.child.* != .name) {
         return false;
     }
@@ -259,7 +259,7 @@ fn isInOutPointer(this: *Self, ptr: Registry.Pointer) !bool {
     }
 
     for (container.fields) |field| {
-        if (mem.eql(u8, field.name, "next")) {
+        if (std.mem.eql(u8, field.name, "next")) {
             return true;
         }
     }
@@ -267,7 +267,7 @@ fn isInOutPointer(this: *Self, ptr: Registry.Pointer) !bool {
     return false;
 }
 
-fn classifyParam(this: *Self, param: Registry.Command.Param) !ParamType {
+fn classifyParam(this: *Self, param: c_types.Command.Param) !ParamType {
     switch (param.param_type) {
         .pointer => |ptr| {
             if (param.is_buffer_len) {
@@ -280,7 +280,7 @@ fn classifyParam(this: *Self, param: Registry.Command.Param) !ParamType {
 
             if (ptr.child.* == .name) {
                 const child_name = ptr.child.name;
-                if (mem.eql(u8, child_name, "void")) {
+                if (std.mem.eql(u8, child_name, "void")) {
                     return .other;
                 } else if (builtin_types.get(child_name) == null and trimXrNamespace(child_name).ptr == child_name.ptr) {
                     return .other; // External type
@@ -315,7 +315,7 @@ fn classifyParam(this: *Self, param: Registry.Command.Param) !ParamType {
     return .other;
 }
 
-fn classifyCommandDispatch(name: []const u8, command: Registry.Command) CommandDispatchType {
+fn classifyCommandDispatch(name: []const u8, command: c_types.Command) CommandDispatchType {
     const override_functions = std.StaticStringMap(CommandDispatchType).initComptime(.{
         .{ "xrGetInstanceProcAddr", .base },
         .{ "xrCreateInstance", .base },
@@ -333,7 +333,7 @@ fn classifyCommandDispatch(name: []const u8, command: Registry.Command) CommandD
     };
 }
 
-fn renderApiConstant(this: *Self, writer: *std.Io.Writer, api_constant: Registry.ApiConstant) !void {
+fn renderApiConstant(this: *Self, writer: *std.Io.Writer, api_constant: ApiConstant) !void {
     try writer.writeAll("pub const ");
     try this.renderName(writer, api_constant.name);
     try writer.writeAll(" = ");
@@ -387,9 +387,9 @@ fn renderApiConstantExpr(this: *Self, writer: *std.Io.Writer, expr: []const u8) 
 
         switch (suffix.kind) {
             .id => {
-                if (mem.eql(u8, suffix.text, "ULL")) {
+                if (std.mem.eql(u8, suffix.text, "ULL")) {
                     try writer.print("@as(u64, {s})", .{tok.text});
-                } else if (mem.eql(u8, suffix.text, "U")) {
+                } else if (std.mem.eql(u8, suffix.text, "U")) {
                     try writer.print("@as(u32, {s})", .{tok.text});
                 } else {
                     return error.InvalidApiConstant;
@@ -400,7 +400,7 @@ fn renderApiConstantExpr(this: *Self, writer: *std.Io.Writer, expr: []const u8) 
                 try writer.print("@as(f32, {s}.{s})", .{ tok.text, decimal.text });
 
                 const f = (try tokenizer.next()) orelse return error.InvalidConstantExpr;
-                if (f.kind != .id or !mem.eql(u8, f.text, "f")) {
+                if (f.kind != .id or !std.mem.eql(u8, f.text, "f")) {
                     return error.InvalidApiConstant;
                 }
             },
@@ -431,20 +431,20 @@ fn renderName(this: *Self, writer: *std.Io.Writer, name: []const u8) IdRenderer.
             @as([]const u8, if (bitflag_name.tag) |tag| tag else ""),
         });
         return;
-    } else if (mem.startsWith(u8, name, "xr")) {
+    } else if (std.mem.startsWith(u8, name, "xr")) {
         // Function type, always render with the exact same text for linking purposes.
         try this.writeIdentifier(writer, name);
         return;
-    } else if (mem.startsWith(u8, name, "Xr")) {
+    } else if (std.mem.startsWith(u8, name, "Xr")) {
         // Type, strip namespace and write, as they are alreay in title case.
         try this.writeIdentifier(writer, name[2..]);
         return;
-    } else if (mem.startsWith(u8, name, "PFN_xr")) {
+    } else if (std.mem.startsWith(u8, name, "PFN_xr")) {
         // Function pointer type, strip off the PFN_xr part and replace it with Pfn. Note that
         // this function is only called to render the typedeffed function pointers like xrVoidFunction
         try this.writeIdentifierFmt(writer, "Pfn{s}", .{name[6..]});
         return;
-    } else if (mem.startsWith(u8, name, "XR_")) {
+    } else if (std.mem.startsWith(u8, name, "XR_")) {
         // Constants
         try this.writeIdentifier(writer, name[3..]);
         return;
@@ -491,7 +491,7 @@ fn renderCommandPtr(
 }
 
 fn renderPointer(this: *Self, writer: *std.Io.Writer, pointer: c_types.Pointer) IdRenderer.Error!void {
-    const child_is_void = pointer.child.* == .name and mem.eql(u8, pointer.child.name, "void");
+    const child_is_void = pointer.child.* == .name and std.mem.eql(u8, pointer.child.name, "void");
 
     if (pointer.is_optional) {
         try writer.writeByte('?');
@@ -525,7 +525,7 @@ fn renderArray(this: *Self, writer: *std.Io.Writer, array: c_types.Array) !void 
     try this.renderTypeInfo(writer, array.child.*);
 }
 
-fn renderDecl(this: *Self, writer: *std.Io.Writer, decl: Registry.Declaration) !void {
+fn renderDecl(this: *Self, writer: *std.Io.Writer, decl: Declaration) !void {
     switch (decl.decl_type) {
         .container => |container| try this.renderContainer(writer, decl.name, container),
         .enumeration => |enumeration| try this.renderEnumeration(writer, decl.name, enumeration),
@@ -583,7 +583,7 @@ fn renderContainer(
 
     if (!container.is_union) {
         const have_next_or_type = for (container.fields) |field| {
-            if (mem.eql(u8, field.name, "next") or mem.eql(u8, field.name, "type")) {
+            if (std.mem.eql(u8, field.name, "next") or std.mem.eql(u8, field.name, "type")) {
                 break true;
             }
         } else false;
@@ -595,7 +595,7 @@ fn renderContainer(
             );
 
             for (container.fields) |field| {
-                if (mem.eql(u8, field.name, "next") or mem.eql(u8, field.name, "type")) {
+                if (std.mem.eql(u8, field.name, "next") or std.mem.eql(u8, field.name, "type")) {
                     try writer.writeAll("value.");
                     try this.writeIdentifierWithCase(writer, .snake, field.name);
                     try this.renderContainerDefaultField(writer, container, name, field);
@@ -620,21 +620,21 @@ fn renderContainerDefaultField(
     container_name: []const u8,
     field: Container.Field,
 ) !void {
-    if (mem.eql(u8, field.name, "next")) {
+    if (std.mem.eql(u8, field.name, "next")) {
         try writer.writeAll(" = null");
-    } else if (mem.eql(u8, field.name, "type")) {
+    } else if (std.mem.eql(u8, field.name, "type")) {
         if (container.stype == null) {
             return;
         }
 
         const stype = container.stype.?;
-        if (!mem.startsWith(u8, stype, "XR_TYPE_")) {
+        if (!std.mem.startsWith(u8, stype, "XR_TYPE_")) {
             return error.InvalidRegistry;
         }
 
         try writer.writeAll(" = .");
         try this.writeIdentifierWithCase(writer, .snake, stype["XR_TYPE_".len..]);
-    } else if (mem.eql(u8, field.name, "w") and mem.eql(u8, container_name, "XrQuaternionf")) {
+    } else if (std.mem.eql(u8, field.name, "w") and std.mem.eql(u8, container_name, "XrQuaternionf")) {
         try writer.writeAll(" = 1");
     } else if (field.is_optional) {
         if (field.field_type == .name) {
@@ -668,7 +668,7 @@ fn renderEnumFieldName(this: *Self, writer: *std.Io.Writer, name: []const u8, fi
     try this.writeIdentifierWithCase(writer, .snake, try this.extractEnumFieldName(name, field_name));
 }
 
-fn renderEnumeration(this: *Self, writer: *std.Io.Writer, name: []const u8, enumeration: Registry.Enum) !void {
+fn renderEnumeration(this: *Self, writer: *std.Io.Writer, name: []const u8, enumeration: Enum) !void {
     if (enumeration.is_bitmask) {
         try this.renderBitmaskBits(writer, name, enumeration);
         return;
@@ -709,7 +709,7 @@ fn renderEnumeration(this: *Self, writer: *std.Io.Writer, name: []const u8, enum
     try writer.writeAll("};\n");
 }
 
-fn renderBitmaskBits(this: *Self, writer: *std.Io.Writer, name: []const u8, bits: Registry.Enum) !void {
+fn renderBitmaskBits(this: *Self, writer: *std.Io.Writer, name: []const u8, bits: Enum) !void {
     try writer.writeAll("pub const ");
     try this.renderName(writer, name);
     try writer.writeAll(" = packed struct {");
@@ -739,7 +739,7 @@ fn renderBitmaskBits(this: *Self, writer: *std.Io.Writer, name: []const u8, bits
     try writer.writeAll(");\n};\n");
 }
 
-fn renderHandle(this: *Self, writer: *std.Io.Writer, name: []const u8, handle: Registry.Handle) !void {
+fn renderHandle(this: *Self, writer: *std.Io.Writer, name: []const u8, handle: Declaration.Handle) !void {
     const backing_type: []const u8 = if (handle.is_dispatchable) "usize" else "u64";
 
     try writer.writeAll("pub const ");
@@ -747,7 +747,7 @@ fn renderHandle(this: *Self, writer: *std.Io.Writer, name: []const u8, handle: R
     try writer.print(" = enum({s}) {{null_handle = 0, _}};\n", .{backing_type});
 }
 
-fn renderAlias(this: *Self, writer: *std.Io.Writer, name: []const u8, alias: Registry.Alias) !void {
+fn renderAlias(this: *Self, writer: *std.Io.Writer, name: []const u8, alias: Declaration.Alias) !void {
     if (alias.target == .other_command) {
         return;
     } else if (this.extractBitflagName(name) != null) {
@@ -768,8 +768,8 @@ fn renderExternal(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
     try writer.writeAll(" = opaque {};\n");
 }
 
-fn renderForeign(this: *Self, writer: *std.Io.Writer, name: []const u8, foreign: Registry.Foreign) !void {
-    if (mem.eql(u8, foreign.depends, "openxr_platform_defines")) {
+fn renderForeign(this: *Self, writer: *std.Io.Writer, name: []const u8, foreign: Declaration.Foreign) !void {
+    if (std.mem.eql(u8, foreign.depends, "openxr_platform_defines")) {
         return; // Skip built-in types, they are handled differently
     }
 
@@ -1078,7 +1078,7 @@ fn renderWrapperLoader(_: *Self, writer: *std.Io.Writer, dispatch_type: CommandD
 
 fn derefName(name: []const u8) []const u8 {
     var it = IdRenderer.SegmentIterator.init(name);
-    return if (mem.eql(u8, it.next().?, "p"))
+    return if (std.mem.eql(u8, it.next().?, "p"))
         name[1..]
     else
         name;
@@ -1103,7 +1103,7 @@ fn renderWrapperPrototype(this: *Self, writer: *std.Io.Writer, name: []const u8,
 
     try writer.writeAll(") ");
 
-    const returns_xr_result = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "XrResult");
+    const returns_xr_result = command.return_type.* == .name and std.mem.eql(u8, command.return_type.name, "XrResult");
     if (returns_xr_result) {
         try this.renderErrorSetName(writer, name);
         try writer.writeByte('!');
@@ -1147,7 +1147,7 @@ fn extractReturns(this: *Self, command: Registry.Command) ![]const ReturnValue {
 
     if (command.return_type.* == .name) {
         const return_name = command.return_type.name;
-        if (!mem.eql(u8, return_name, "void") and !mem.eql(u8, return_name, "XrResult")) {
+        if (!std.mem.eql(u8, return_name, "void") and !std.mem.eql(u8, return_name, "XrResult")) {
             try returns.append(.{
                 .name = "return_value",
                 .return_value_type = command.return_type.*,
@@ -1157,7 +1157,7 @@ fn extractReturns(this: *Self, command: Registry.Command) ![]const ReturnValue {
     }
 
     if (command.success_codes.len > 1) {
-        if (command.return_type.* != .name or !mem.eql(u8, command.return_type.name, "XrResult")) {
+        if (command.return_type.* != .name or !std.mem.eql(u8, command.return_type.name, "XrResult")) {
             return error.InvalidRegistry;
         }
 
@@ -1166,7 +1166,7 @@ fn extractReturns(this: *Self, command: Registry.Command) ![]const ReturnValue {
             .return_value_type = command.return_type.*,
             .origin = .inner_return_value,
         });
-    } else if (command.success_codes.len == 1 and !mem.eql(u8, command.success_codes[0], "XR_SUCCESS")) {
+    } else if (command.success_codes.len == 1 and !std.mem.eql(u8, command.success_codes[0], "XR_SUCCESS")) {
         return error.InvalidRegistry;
     }
 
@@ -1206,8 +1206,8 @@ fn renderReturnStruct(this: *Self, writer: *std.Io.Writer, command_name: []const
 }
 
 fn renderWrapper(this: *Self, writer: *std.Io.Writer, name: []const u8, command: Registry.Command) !void {
-    const returns_xr_result = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "XrResult");
-    const returns_void = command.return_type.* == .name and mem.eql(u8, command.return_type.name, "void");
+    const returns_xr_result = command.return_type.* == .name and std.mem.eql(u8, command.return_type.name, "XrResult");
+    const returns_void = command.return_type.* == .name and std.mem.eql(u8, command.return_type.name, "void");
 
     const returns = try this.extractReturns(command);
 
@@ -1319,7 +1319,7 @@ fn renderErrorSet(this: *Self, writer: *std.Io.Writer, errors: []const []const u
 
 fn renderResultAsErrorName(this: *Self, writer: *std.Io.Writer, name: []const u8) !void {
     const error_prefix = "XR_ERROR_";
-    if (mem.startsWith(u8, name, error_prefix)) {
+    if (std.mem.startsWith(u8, name, error_prefix)) {
         try this.writeIdentifierWithCase(writer, .title, name[error_prefix.len..]);
     } else {
         // Apparently some commands (XrAcquireProfilingLockInfoKHR) return

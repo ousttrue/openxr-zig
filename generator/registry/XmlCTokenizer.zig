@@ -2,10 +2,10 @@ const std = @import("std");
 const xml = @import("xml/xml.zig");
 const XmlDocument = xml.XmlDocument;
 const Element = XmlDocument.Element;
-const Registry = @import("Registry.zig");
 const CTokenizer = @import("CTokenizer.zig");
 const c_types = @import("c_types.zig");
 const Container = @import("Container.zig");
+const Declaration = @import("Declaration.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -110,7 +110,7 @@ pub fn parseTypedef(
     self: *@This(),
     allocator: std.mem.Allocator,
     ptrs_optional: bool,
-) !Registry.Declaration {
+) !Declaration {
     var useNext = true;
     while (useNext) {
         useNext = false;
@@ -127,7 +127,7 @@ pub fn parseTypedef(
                     continue;
                 }
 
-                return Registry.Declaration{
+                return Declaration{
                     .name = decl.name orelse return error.MissingTypeIdentifier,
                     .decl_type = .{ .typedef = decl.decl_type },
                 };
@@ -140,7 +140,7 @@ pub fn parseTypedef(
                     const name = try self.expect(.name);
                     _ = try self.expect(.rparen);
 
-                    return Registry.Declaration{
+                    return Declaration{
                         .name = name.text,
                         .decl_type = .{ .typedef = .{ .name = "uint64_t" } },
                     };
@@ -157,7 +157,7 @@ pub fn parseTypedef(
     unreachable;
 }
 
-pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) !Registry.Declaration {
+pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) !Declaration {
     var decl = try self.parseDeclaration(allocator, ptrs_optional);
     if (try self.peek()) |_| {
         return error.InvalidSyntax;
@@ -181,7 +181,7 @@ pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_opti
         else => {},
     }
 
-    return Registry.Declaration{
+    return Declaration{
         .name = decl.name orelse return error.MissingTypeIdentifier,
         .decl_type = .{ .typedef = decl.decl_type },
     };

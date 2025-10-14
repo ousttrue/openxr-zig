@@ -1,50 +1,106 @@
 const std = @import("std");
 const xml = @import("xml/xml.zig");
-const XmlDocument = xml.XmlDocument;
-const Element = XmlDocument.Element;
-const EnumFieldMerger = @import("EnumFieldMerger.zig");
+const XmlElement = xml.XmlDocument.Element;
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
-pub const ApiConstant = @import("ApiConstant.zig");
-const FeatureLevel = @import("FeatureLevel.zig");
-pub const Enum = @import("Enum.zig");
+const ApiConstant = @import("ApiConstant.zig");
+const Enum = @import("Enum.zig");
 const Extension = @import("Extension.zig");
-pub const Require = @import("Require.zig");
 const Feature = @import("Feature.zig");
 const c_types = @import("c_types.zig");
 const Container = @import("Container.zig");
+const Declaration = @import("Declaration.zig");
+const Require = @import("Require.zig");
 
-pub const Declaration = struct {
-    name: []const u8,
-    decl_type: DeclarationType,
-};
+const Registry = @This();
 
-pub const DeclarationType = union(enum) {
-    container: Container,
-    enumeration: Enum,
-    bitmask: Bitmask,
-    handle: Handle,
-    command: c_types.Command,
-    alias: Alias,
-    foreign: Foreign,
-    typedef: c_types.TypeInfo,
-    external,
-};
+const EnumFieldMerger = struct {
+    arena: std.mem.Allocator,
+    registry: *Registry,
+    enum_extensions: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Enum.Field)),
+    field_set: std.StringArrayHashMapUnmanaged(void),
 
-pub const Alias = struct {
-    pub const Target = enum {
-        other_command,
-        other_type,
-    };
+    pub fn init(arena: std.mem.Allocator, registry: *Registry) @This() {
+        return .{
+            .arena = arena,
+            .registry = registry,
+            .enum_extensions = .{},
+            .field_set = .{},
+        };
+    }
 
-    name: []const u8,
-    target: Target,
+    fn putEnumExtension(self: *@This(), enum_name: []const u8, field: Enum.Field) !void {
+        const res = try self.enum_extensions.getOrPut(self.arena, enum_name);
+        if (!res.found_existing) {
+            res.value_ptr.* = std.ArrayListUnmanaged(Enum.Field){};
+        }
+
+        try res.value_ptr.append(self.arena, field);
+    }
+
+    fn addRequires(self: *@This(), reqs: []const Require) !void {
+        for (reqs) |req| {
+            for (req.extends) |enum_ext| {
+                try self.putEnumExtension(enum_ext.extends, enum_ext.field);
+            }
+        }
+    }
+
+    fn mergeEnumFields(self: *@This(), name: []const u8, base_enum: *Enum) !void {
+        // If there are no extensions for this enum, assume its valid.
+        const extensions = self.enum_extensions.get(name) orelse return;
+
+        self.field_set.clearRetainingCapacity();
+
+        const n_fields_upper_bound = base_enum.fields.len + extensions.items.len;
+        const new_fields = try self.arena.alloc(Enum.Field, n_fields_upper_bound);
+        var i: usize = 0;
+
+        for (base_enum.fields) |field| {
+            const res = try self.field_set.getOrPut(self.arena, field.name);
+            if (!res.found_existing) {
+                new_fields[i] = field;
+                i += 1;
+            }
+        }
+
+        // Assume that if a field name clobbers, the value is the same
+        for (extensions.items) |field| {
+            const res = try self.field_set.getOrPut(self.arena, field.name);
+            if (!res.found_existing) {
+                new_fields[i] = field;
+                i += 1;
+            }
+        }
+
+        // Existing base_enum.fields was allocated by `self.arena`, so
+        // it gets cleaned up whenever that is deinited.
+        base_enum.fields = new_fields[0..i];
+    }
+
+    pub fn merge(self: *@This()) !void {
+        for (self.registry.features) |feature| {
+            try self.addRequires(feature.requires);
+        }
+
+        for (self.registry.extensions) |ext| {
+            try self.addRequires(ext.requires);
+        }
+
+        // Merge all the enum fields.
+        // Assume that all keys of enum_extensions appear in `self.registry.decls`
+        for (self.registry.decls) |*decl| {
+            if (decl.decl_type == .enumeration) {
+                try self.mergeEnumFields(decl.name, &decl.decl_type.enumeration);
+            }
+        }
+    }
 };
 
 pub const Tag = struct {
     name: []const u8,
     author: []const u8,
 
-    fn parse(allocator: std.mem.Allocator, root: *Element) ![]@This() {
+    fn parse(allocator: std.mem.Allocator, root: *XmlElement) ![]@This() {
         var tags_elem = root.findChildByTag("tags") orelse return error.InvalidRegistry;
         const tags = try allocator.alloc(@This(), tags_elem.children.len);
 
@@ -61,19 +117,6 @@ pub const Tag = struct {
 
         return tags[0..i];
     }
-};
-
-pub const Bitmask = struct {
-    bits_enum: ?[]const u8,
-};
-
-pub const Handle = struct {
-    parent: ?[]const u8, // XrInstance has no parent
-    is_dispatchable: bool,
-};
-
-pub const Foreign = struct {
-    depends: []const u8, // Either a header or openxr_platform_defines
 };
 
 decls: []Declaration,
@@ -134,7 +177,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     return registry;
 }
 
-fn parseDeclarations(allocator: std.mem.Allocator, root: *Element) ![]Declaration {
+fn parseDeclarations(allocator: std.mem.Allocator, root: *XmlElement) ![]Declaration {
     const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
     const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
 
@@ -187,7 +230,7 @@ fn parseDeclarations(allocator: std.mem.Allocator, root: *Element) ![]Declaratio
     return decls[0..count];
 }
 
-fn parseType(allocator: std.mem.Allocator, ty: *Element) !?Declaration {
+fn parseType(allocator: std.mem.Allocator, ty: *XmlElement) !?Declaration {
     if (ty.getAttribute("category")) |category| {
         // std.log.debug("{f}", .{ty});
         if (std.mem.eql(u8, category, "bitmask")) {
@@ -213,7 +256,7 @@ fn parseType(allocator: std.mem.Allocator, ty: *Element) !?Declaration {
     return null;
 }
 
-fn parseForeigntype(ty: *Element) !Declaration {
+fn parseForeigntype(ty: *XmlElement) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
     const depends = ty.getAttribute("requires") orelse if (std.mem.eql(u8, name, "int"))
         "openxr_platform_defines" // for some reason, int doesn't depend on xr_platform (but the other c types do)
@@ -226,7 +269,7 @@ fn parseForeigntype(ty: *Element) !Declaration {
     };
 }
 
-fn parseBitmaskType(ty: *Element) !Declaration {
+fn parseBitmaskType(ty: *XmlElement) !Declaration {
     if (ty.getAttribute("name")) |name| {
         const alias = ty.getAttribute("alias") orelse return error.InvalidRegistry;
         return Declaration{
@@ -241,7 +284,7 @@ fn parseBitmaskType(ty: *Element) !Declaration {
     }
 }
 
-fn parseHandleType(ty: *Element) !Declaration {
+fn parseHandleType(ty: *XmlElement) !Declaration {
     // Parent is not handled in case of an alias
     if (ty.getAttribute("name")) |name| {
         const alias = ty.getAttribute("alias") orelse return error.InvalidRegistry;
@@ -269,7 +312,7 @@ fn parseHandleType(ty: *Element) !Declaration {
     }
 }
 
-fn parseBaseType(allocator: std.mem.Allocator, ty: *Element) !Declaration {
+fn parseBaseType(allocator: std.mem.Allocator, ty: *XmlElement) !Declaration {
     const name = ty.getCharData("name") orelse return error.InvalidRegistry;
     if (ty.getCharData("type")) |_| {
         var tok = XmlCTokenizer.init(ty);
@@ -284,7 +327,7 @@ fn parseBaseType(allocator: std.mem.Allocator, ty: *Element) !Declaration {
     }
 }
 
-fn parseContainer(allocator: std.mem.Allocator, ty: *Element, is_union: bool) !Declaration {
+fn parseContainer(allocator: std.mem.Allocator, ty: *XmlElement, is_union: bool) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
 
     if (ty.getAttribute("alias")) |alias| {
@@ -358,12 +401,12 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *Element, is_union: bool) !D
     };
 }
 
-fn parseFuncPointer(allocator: std.mem.Allocator, ty: *Element) !Declaration {
+fn parseFuncPointer(allocator: std.mem.Allocator, ty: *XmlElement) !Declaration {
     var xctok = XmlCTokenizer.init(ty);
     return try xctok.parseTypedef(allocator, true);
 }
 
-fn parseEnumAlias(elem: *Element) !?Declaration {
+fn parseEnumAlias(elem: *XmlElement) !?Declaration {
     if (elem.getAttribute("alias")) |alias| {
         const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
         return Declaration{
