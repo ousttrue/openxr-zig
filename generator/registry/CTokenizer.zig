@@ -5,6 +5,10 @@ pub const Token = struct {
     kind: Kind,
     text: []const u8,
 
+    pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("{s}({s})", .{ @tagName(this.kind), this.text });
+    }
+
     pub const Kind = enum {
         id, // Any id thats not a keyword
         name, // OpenXR <name>...</name>

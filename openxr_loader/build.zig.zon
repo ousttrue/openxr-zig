@@ -1,0 +1,17 @@
+.{
+    .name = .openxr,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.1",
+    .paths = .{""},
+    .fingerprint = 0xa6eefe1668cb4a2e,
+    .dependencies = .{
+        .zbk = .{
+            .url = "git+https://github.com/ousttrue/zbk.git#3f6408ad863ce9ec7629b4e4649af130b7876231",
+            .hash = "zbk-0.0.1-6gzT3l1QKABySw-pC3tnqzSlGotNSEOk0sFyWpuSpCx5",
+        },
+        .openxr = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.1.52.zip",
+            .hash = "N-V-__8AAFPjQwB8_BR6KTRrHVq64cPpenQrApBu9vK4ZqpZ",
+        },
+    },
+}

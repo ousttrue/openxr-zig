@@ -19,8 +19,56 @@ pub const Element = struct {
     line: usize,
     column: usize,
 
-    pub fn getAttribute(self: Element, attrib_name: []const u8) ?[]const u8 {
-        for (self.attributes) |child| {
+    fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(this.tag);
+        for (this.children) |child| {
+            switch (child) {
+                .char_data => |char_data| {
+                    allocator.free(char_data);
+                },
+                .comment => |comment| {
+                    allocator.free(comment);
+                },
+                .element => |element| {
+                    element.deinit(allocator);
+                    allocator.destroy(element);
+                },
+            }
+        }
+        allocator.free(this.children);
+
+        for (this.attributes) |attribute| {
+            allocator.free(attribute.name);
+            allocator.free(attribute.value);
+        }
+        allocator.free(this.attributes);
+    }
+
+    pub fn destroy(this: *@This(), allocator: std.mem.Allocator) void {
+        this.deinit(allocator);
+        allocator.destroy(this);
+    }
+
+    pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("<{s} {}:{}", .{ this.tag, this.line, this.column });
+        for (this.attributes) |a| {
+            try writer.print(" {s}={s}", .{ a.name, a.value });
+        }
+        try writer.print(">", .{});
+        for (this.children) |c| {
+            switch (c) {
+                .char_data => |char_data| try writer.print("{s}", .{char_data}),
+                .comment => |comment| try writer.print("{s}", .{comment}),
+                .element => |element| {
+                    _ = element;
+                    // try writer.print("{f}", .{element});
+                },
+            }
+        }
+    }
+
+    pub fn getAttribute(this: Element, attrib_name: []const u8) ?[]const u8 {
+        for (this.attributes) |child| {
             if (std.mem.eql(u8, child.name, attrib_name)) {
                 return child.value;
             }
@@ -29,8 +77,8 @@ pub const Element = struct {
         return null;
     }
 
-    pub fn getCharData(self: Element, child_tag: []const u8) ?[]const u8 {
-        const child = self.findChildByTag(child_tag) orelse return null;
+    pub fn getCharData(this: Element, child_tag: []const u8) ?[]const u8 {
+        const child = this.findChildByTag(child_tag) orelse return null;
         if (child.children.len != 1) {
             return null;
         }
@@ -41,27 +89,27 @@ pub const Element = struct {
         };
     }
 
-    pub fn iterator(self: Element) ChildIterator {
+    pub fn iterator(this: Element) ChildIterator {
         return .{
-            .items = self.children,
+            .items = this.children,
             .i = 0,
         };
     }
 
-    pub fn elements(self: Element) ChildElementIterator {
+    pub fn elements(this: Element) ChildElementIterator {
         return .{
-            .inner = self.iterator(),
+            .inner = this.iterator(),
         };
     }
 
-    pub fn findChildByTag(self: Element, tag: []const u8) ?*Element {
-        var it = self.findChildrenByTag(tag);
+    pub fn findChildByTag(this: Element, tag: []const u8) ?*Element {
+        var it = this.findChildrenByTag(tag);
         return it.next();
     }
 
-    pub fn findChildrenByTag(self: Element, tag: []const u8) FindChildrenByTagIterator {
+    pub fn findChildrenByTag(this: Element, tag: []const u8) FindChildrenByTagIterator {
         return .{
-            .inner = self.elements(),
+            .inner = this.elements(),
             .tag = tag,
         };
     }
@@ -70,10 +118,10 @@ pub const Element = struct {
         items: []Content,
         i: usize,
 
-        pub fn next(self: *ChildIterator) ?*Content {
-            if (self.i < self.items.len) {
-                self.i += 1;
-                return &self.items[self.i - 1];
+        pub fn next(this: *ChildIterator) ?*Content {
+            if (this.i < this.items.len) {
+                this.i += 1;
+                return &this.items[this.i - 1];
             }
 
             return null;
@@ -83,8 +131,8 @@ pub const Element = struct {
     pub const ChildElementIterator = struct {
         inner: ChildIterator,
 
-        pub fn next(self: *ChildElementIterator) ?*Element {
-            while (self.inner.next()) |child| {
+        pub fn next(this: *ChildElementIterator) ?*Element {
+            while (this.inner.next()) |child| {
                 if (child.* != .element) {
                     continue;
                 }
@@ -100,9 +148,9 @@ pub const Element = struct {
         inner: ChildElementIterator,
         tag: []const u8,
 
-        pub fn next(self: *FindChildrenByTagIterator) ?*Element {
-            while (self.inner.next()) |child| {
-                if (!std.mem.eql(u8, child.tag, self.tag)) {
+        pub fn next(this: *FindChildrenByTagIterator) ?*Element {
+            while (this.inner.next()) |child| {
+                if (!std.mem.eql(u8, child.tag, this.tag)) {
                     continue;
                 }
 
@@ -115,8 +163,18 @@ pub const Element = struct {
 };
 
 pub const Document = struct {
+    allocator: std.mem.Allocator,
     xml_decl: ?*Element,
     root: *Element,
+
+    pub fn deinit(this: *@This()) void {
+        if (this.xml_decl) |xml_decl| {
+            xml_decl.deinit(this.allocator);
+            this.allocator.destroy(xml_decl);
+        }
+        this.root.deinit(this.allocator);
+        this.allocator.destroy(this.root);
+    }
 };
 
 pub const Parser = struct {
@@ -136,113 +194,115 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *@This()) !Document {
+    pub fn parse(this: *@This()) !Document {
         var doc = Document{
+            .allocator = this.allocator,
             .xml_decl = null,
             .root = undefined,
         };
 
-        try skipComments(self);
+        try skipComments(this);
 
-        doc.xml_decl = try self.parseElement(.xml_decl);
-        _ = self.eatWs();
-        _ = self.eatStr("<!DOCTYPE xml>");
-        _ = self.eatWs();
+        doc.xml_decl = try this.parseElement(.xml_decl);
+        _ = this.eatWs();
+        _ = this.eatStr("<!DOCTYPE xml>");
+        _ = this.eatWs();
 
         // xr.xml currently has 2 processing instruction tags, they're handled manually for now
-        _ = try self.parseElement(.xml_decl);
-        _ = self.eatWs();
-        _ = try self.parseElement(.xml_decl);
-        _ = self.eatWs();
+        _ = try this.parseElement(.xml_decl);
+        _ = this.eatWs();
+        _ = try this.parseElement(.xml_decl);
+        _ = this.eatWs();
 
-        try self.skipComments();
+        try this.skipComments();
 
-        doc.root = (try self.parseElement(.element)) orelse return error.InvalidDocument;
-        _ = self.eatWs();
-        try self.skipComments();
+        doc.root = (try this.parseElement(.element)) orelse return error.InvalidDocument;
+        _ = this.eatWs();
+        try this.skipComments();
 
-        if (self.peek() != null) return error.InvalidDocument;
+        if (this.peek() != null) return error.InvalidDocument;
 
         return doc;
     }
 
-    fn skipComments(self: *@This()) !void {
-        while ((try self.parseComment()) != null) {
-            _ = self.eatWs();
+    fn skipComments(this: *@This()) !void {
+        while ((try this.parseComment())) |comment| {
+            _ = this.eatWs();
+            this.allocator.free(comment);
         }
     }
 
-    fn parseComment(self: *@This()) !?[]const u8 {
-        if (!self.eatStr("<!--")) return null;
+    fn parseComment(this: *@This()) !?[]const u8 {
+        if (!this.eatStr("<!--")) return null;
 
-        const begin = self.offset;
-        while (!self.eatStr("-->")) {
-            _ = self.consume() catch return error.UnclosedComment;
+        const begin = this.offset;
+        while (!this.eatStr("-->")) {
+            _ = this.consume() catch return error.UnclosedComment;
         }
 
-        const end = self.offset - "-->".len;
-        return try self.allocator.dupe(u8, self.source[begin..end]);
+        const end = this.offset - "-->".len;
+        return try this.allocator.dupe(u8, this.source[begin..end]);
     }
 
-    fn parseElement(self: *@This(), comptime kind: ElementKind) !?*Element {
-        const start = self.offset;
+    fn parseElement(this: *@This(), comptime kind: ElementKind) !?*Element {
+        const start = this.offset;
 
         switch (kind) {
             .xml_decl => {
-                if (!self.eatStr("<?")) return null;
+                if (!this.eatStr("<?")) return null;
             },
             .element => {
-                if (!self.eat('<')) return null;
+                if (!this.eat('<')) return null;
             },
         }
 
-        const tag = parseNameNoDupe(self) catch {
-            self.offset = start;
+        const tag = parseNameNoDupe(this) catch {
+            this.offset = start;
             return null;
         };
 
-        var attributes = std.array_list.Managed(Attribute).init(self.allocator);
+        var attributes = std.array_list.Managed(Attribute).init(this.allocator);
         defer attributes.deinit();
 
-        var children = std.array_list.Managed(Content).init(self.allocator);
+        var children = std.array_list.Managed(Content).init(this.allocator);
         defer children.deinit();
 
-        while (self.eatWs()) {
-            const attr = (try self.parseAttr()) orelse break;
+        while (this.eatWs()) {
+            const attr = (try this.parseAttr()) orelse break;
             try attributes.append(attr);
         }
 
         switch (kind) {
-            .xml_decl => try self.expectStr("?>"),
+            .xml_decl => try this.expectStr("?>"),
             .element => {
-                if (!self.eatStr("/>")) {
-                    try self.expect('>');
+                if (!this.eatStr("/>")) {
+                    try this.expect('>');
 
                     while (true) {
-                        if (self.peek() == null) {
+                        if (this.peek() == null) {
                             return error.UnexpectedEof;
-                        } else if (self.eatStr("</")) {
+                        } else if (this.eatStr("</")) {
                             break;
                         }
 
-                        const content = try self.parseContent();
+                        const content = try this.parseContent();
                         try children.append(content);
                     }
 
-                    const closing_tag = try parseNameNoDupe(self);
+                    const closing_tag = try parseNameNoDupe(this);
                     if (!std.mem.eql(u8, tag.slice, closing_tag.slice)) {
                         return error.NonMatchingClosingTag;
                     }
 
-                    _ = self.eatWs();
-                    try self.expect('>');
+                    _ = this.eatWs();
+                    try this.expect('>');
                 }
             },
         }
 
-        const element = try self.allocator.create(Element);
+        const element = try this.allocator.create(Element);
         element.* = .{
-            .tag = try self.allocator.dupe(u8, tag.slice),
+            .tag = try this.allocator.dupe(u8, tag.slice),
             .attributes = try attributes.toOwnedSlice(),
             .children = try children.toOwnedSlice(),
             .line = tag.line,
@@ -251,129 +311,129 @@ pub const Parser = struct {
         return element;
     }
 
-    fn parseContent(self: *@This()) ParseError!Content {
-        if (try self.parseCharData()) |cd| {
+    fn parseContent(this: *@This()) ParseError!Content {
+        if (try this.parseCharData()) |cd| {
             return Content{ .char_data = cd };
-        } else if (try self.parseComment()) |comment| {
+        } else if (try this.parseComment()) |comment| {
             return Content{ .comment = comment };
-        } else if (try self.parseElement(.element)) |elem| {
+        } else if (try this.parseElement(.element)) |elem| {
             return Content{ .element = elem };
         } else {
             return error.UnexpectedCharacter;
         }
     }
 
-    fn parseCharData(self: *@This()) !?[]const u8 {
-        const begin = self.offset;
+    fn parseCharData(this: *@This()) !?[]const u8 {
+        const begin = this.offset;
 
-        while (self.peek()) |ch| {
+        while (this.peek()) |ch| {
             switch (ch) {
                 '<' => break,
-                else => _ = self.consumeNoEof(),
+                else => _ = this.consumeNoEof(),
             }
         }
 
-        const end = self.offset;
+        const end = this.offset;
         if (begin == end) return null;
 
-        return try unescape(self.allocator, self.source[begin..end]);
+        return try unescape(this.allocator, this.source[begin..end]);
     }
 
-    fn parseAttr(self: *@This()) !?Attribute {
-        const name = parseNameNoDupe(self) catch return null;
-        _ = self.eatWs();
-        try self.expect('=');
-        _ = self.eatWs();
-        const value = try self.parseAttrValue();
+    fn parseAttr(this: *@This()) !?Attribute {
+        const name = parseNameNoDupe(this) catch return null;
+        _ = this.eatWs();
+        try this.expect('=');
+        _ = this.eatWs();
+        const value = try this.parseAttrValue();
 
         const attr = Attribute{
-            .name = try self.allocator.dupe(u8, name.slice),
+            .name = try this.allocator.dupe(u8, name.slice),
             .value = value,
         };
         return attr;
     }
 
-    fn parseAttrValue(self: *@This()) ![]const u8 {
-        const quote = try self.consume();
+    fn parseAttrValue(this: *@This()) ![]const u8 {
+        const quote = try this.consume();
         if (quote != '"' and quote != '\'') return error.UnexpectedCharacter;
 
-        const begin = self.offset;
+        const begin = this.offset;
 
         while (true) {
-            const c = self.consume() catch return error.UnclosedValue;
+            const c = this.consume() catch return error.UnclosedValue;
             if (c == quote) break;
         }
 
-        const end = self.offset - 1;
+        const end = this.offset - 1;
 
-        return try unescape(self.allocator, self.source[begin..end]);
+        return try unescape(this.allocator, this.source[begin..end]);
     }
 
-    fn parseEqAttrValue(self: *@This()) ![]const u8 {
-        _ = self.eatWs();
-        try self.expect('=');
-        _ = self.eatWs();
+    fn parseEqAttrValue(this: *@This()) ![]const u8 {
+        _ = this.eatWs();
+        try this.expect('=');
+        _ = this.eatWs();
 
-        return try self.parseAttrValue();
+        return try this.parseAttrValue();
     }
 
-    fn peek(self: *@This()) ?u8 {
-        return if (self.offset < self.source.len) self.source[self.offset] else null;
+    fn peek(this: *@This()) ?u8 {
+        return if (this.offset < this.source.len) this.source[this.offset] else null;
     }
 
-    fn consume(self: *@This()) !u8 {
-        if (self.offset < self.source.len) {
-            return self.consumeNoEof();
+    fn consume(this: *@This()) !u8 {
+        if (this.offset < this.source.len) {
+            return this.consumeNoEof();
         }
 
         return error.UnexpectedEof;
     }
 
-    fn consumeNoEof(self: *@This()) u8 {
-        std.debug.assert(self.offset < self.source.len);
-        const c = self.source[self.offset];
-        self.offset += 1;
+    fn consumeNoEof(this: *@This()) u8 {
+        std.debug.assert(this.offset < this.source.len);
+        const c = this.source[this.offset];
+        this.offset += 1;
 
         if (c == '\n') {
-            self.line += 1;
-            self.column = 0;
+            this.line += 1;
+            this.column = 0;
         } else {
-            self.column += 1;
+            this.column += 1;
         }
 
         return c;
     }
 
-    fn eat(self: *@This(), char: u8) bool {
-        self.expect(char) catch return false;
+    fn eat(this: *@This(), char: u8) bool {
+        this.expect(char) catch return false;
         return true;
     }
 
-    fn expect(self: *@This(), expected: u8) !void {
-        if (self.peek()) |actual| {
+    fn expect(this: *@This(), expected: u8) !void {
+        if (this.peek()) |actual| {
             if (expected != actual) {
                 return error.UnexpectedCharacter;
             }
 
-            _ = self.consumeNoEof();
+            _ = this.consumeNoEof();
             return;
         }
 
         return error.UnexpectedEof;
     }
 
-    fn eatStr(self: *@This(), text: []const u8) bool {
-        self.expectStr(text) catch return false;
+    fn eatStr(this: *@This(), text: []const u8) bool {
+        this.expectStr(text) catch return false;
         return true;
     }
 
-    fn expectStr(self: *@This(), text: []const u8) !void {
-        if (self.source.len < self.offset + text.len) {
+    fn expectStr(this: *@This(), text: []const u8) !void {
+        if (this.source.len < this.offset + text.len) {
             return error.UnexpectedEof;
-        } else if (std.mem.startsWith(u8, self.source[self.offset..], text)) {
+        } else if (std.mem.startsWith(u8, this.source[this.offset..], text)) {
             var i: usize = 0;
             while (i < text.len) : (i += 1) {
-                _ = self.consumeNoEof();
+                _ = this.consumeNoEof();
             }
 
             return;
@@ -382,14 +442,14 @@ pub const Parser = struct {
         return error.UnexpectedCharacter;
     }
 
-    fn eatWs(self: *@This()) bool {
+    fn eatWs(this: *@This()) bool {
         var ws = false;
 
-        while (self.peek()) |ch| {
+        while (this.peek()) |ch| {
             switch (ch) {
                 ' ', '\t', '\n', '\r' => {
                     ws = true;
-                    _ = self.consumeNoEof();
+                    _ = this.consumeNoEof();
                 },
                 else => break,
             }
@@ -398,24 +458,29 @@ pub const Parser = struct {
         return ws;
     }
 
-    fn expectWs(self: *@This()) !void {
-        if (!self.eatWs()) return error.UnexpectedCharacter;
+    fn expectWs(this: *@This()) !void {
+        if (!this.eatWs()) return error.UnexpectedCharacter;
     }
 
-    fn currentLine(self: @This()) []const u8 {
+    fn currentLine(this: @This()) []const u8 {
         var begin: usize = 0;
-        if (std.mem.lastIndexOfScalar(u8, self.source[0..self.offset], '\n')) |prev_nl| {
+        if (std.mem.lastIndexOfScalar(u8, this.source[0..this.offset], '\n')) |prev_nl| {
             begin = prev_nl + 1;
         }
 
-        const end = std.mem.indexOfScalarPos(u8, self.source, self.offset, '\n') orelse self.source.len;
-        return self.source[begin..end];
+        const end = std.mem.indexOfScalarPos(u8, this.source, this.offset, '\n') orelse this.source.len;
+        return this.source[begin..end];
     }
 };
 
+pub fn parse(allocator: std.mem.Allocator, src: []const u8) !Document {
+    var parser = Parser.init(allocator, src);
+    return try parser.parse();
+}
+
 test "xml: Parser" {
     {
-        var parser = Parser.init("I like pythons");
+        var parser = Parser.init(std.testing.allocator, "I like pythons");
         try std.testing.expectEqual(@as(?u8, 'I'), parser.peek());
         try std.testing.expectEqual(@as(u8, 'I'), parser.consumeNoEof());
         try std.testing.expectEqual(@as(?u8, ' '), parser.peek());
@@ -451,7 +516,7 @@ test "xml: Parser" {
     }
 
     {
-        var parser = Parser.init("");
+        var parser = Parser.init(std.testing.allocator, "");
         try std.testing.expectEqual(parser.peek(), null);
         try std.testing.expectError(error.UnexpectedEof, parser.consume());
         try std.testing.expectEqual(parser.eat('p'), false);
@@ -509,68 +574,78 @@ const ElementKind = enum {
 };
 
 test "xml: parseElement" {
+    const a = std.testing.allocator;
     {
-        var parser = Parser.init("<= a='b'/>");
-        try std.testing.expectEqual(@as(?*Element, null), try parser.parseElement(.element));
+        var parser = Parser.init(std.testing.allocator, "<= a='b'/>");
+        const elem = try parser.parseElement(.element);
+        try std.testing.expectEqual(@as(?*Element, null), elem);
         try std.testing.expectEqual(@as(?u8, '<'), parser.peek());
     }
 
     {
-        var parser = Parser.init("<python size='15' color = \"green\"/>");
-        const elem = try parser.parseElement(.element);
-        try std.testing.expectEqualSlices(u8, elem.?.tag, "python");
+        var parser = Parser.init(std.testing.allocator, "<python size='15' color = \"green\"/>");
+        const elem = (try parser.parseElement(.element)).?;
+        defer elem.destroy(a);
+        try std.testing.expectEqualSlices(u8, elem.tag, "python");
 
-        const size_attr = elem.?.attributes[0];
+        const size_attr = elem.attributes[0];
         try std.testing.expectEqualSlices(u8, size_attr.name, "size");
         try std.testing.expectEqualSlices(u8, size_attr.value, "15");
 
-        const color_attr = elem.?.attributes[1];
+        const color_attr = elem.attributes[1];
         try std.testing.expectEqualSlices(u8, color_attr.name, "color");
         try std.testing.expectEqualSlices(u8, color_attr.value, "green");
     }
 
     {
-        var parser = Parser.init("<python>test</python>");
-        const elem = try parser.parseElement(.element);
-        try std.testing.expectEqualSlices(u8, elem.?.tag, "python");
-        try std.testing.expectEqualSlices(u8, elem.?.children[0].char_data, "test");
+        var parser = Parser.init(std.testing.allocator, "<python>test</python>");
+        const elem = (try parser.parseElement(.element)).?;
+        defer elem.destroy(a);
+        try std.testing.expectEqualSlices(u8, elem.tag, "python");
+        try std.testing.expectEqualSlices(u8, elem.children[0].char_data, "test");
     }
 
     {
-        var parser = Parser.init("<a>b<c/>d<e/>f<!--g--></a>");
-        const elem = try parser.parseElement(.element);
-        try std.testing.expectEqualSlices(u8, elem.?.tag, "a");
-        try std.testing.expectEqualSlices(u8, elem.?.children[0].char_data, "b");
-        try std.testing.expectEqualSlices(u8, elem.?.children[1].element.tag, "c");
-        try std.testing.expectEqualSlices(u8, elem.?.children[2].char_data, "d");
-        try std.testing.expectEqualSlices(u8, elem.?.children[3].element.tag, "e");
-        try std.testing.expectEqualSlices(u8, elem.?.children[4].char_data, "f");
-        try std.testing.expectEqualSlices(u8, elem.?.children[5].comment, "g");
+        var parser = Parser.init(a, "<a>b<c/>d<e/>f<!--g--></a>");
+        const elem = (try parser.parseElement(.element)).?;
+        defer elem.destroy(a);
+        try std.testing.expectEqualSlices(u8, elem.tag, "a");
+        try std.testing.expectEqualSlices(u8, elem.children[0].char_data, "b");
+        try std.testing.expectEqualSlices(u8, elem.children[1].element.tag, "c");
+        try std.testing.expectEqualSlices(u8, elem.children[2].char_data, "d");
+        try std.testing.expectEqualSlices(u8, elem.children[3].element.tag, "e");
+        try std.testing.expectEqualSlices(u8, elem.children[4].char_data, "f");
+        try std.testing.expectEqualSlices(u8, elem.children[5].comment, "g");
     }
 }
 
 test "xml: parse prolog" {
+    const a = std.testing.allocator;
+
     {
-        var parser = Parser.init(std.testing.allocator, "<?xmla version='aa'?>");
-        const decl = try parser.parseElement(.xml_decl);
-        try std.testing.expectEqualSlices(u8, decl.?.tag, "xmla");
-        try std.testing.expectEqualSlices(u8, "aa", decl.?.getAttribute("version").?);
+        var parser = Parser.init(a, "<?xmla version='aa'?>");
+        const decl = (try parser.parseElement(.xml_decl)).?;
+        defer decl.destroy(a);
+        try std.testing.expectEqualSlices(u8, decl.tag, "xmla");
+        try std.testing.expectEqualSlices(u8, "aa", decl.getAttribute("version").?);
     }
 
     {
-        var parser = Parser.init("<?xml version='aa'?>");
-        const decl = try parser.parseElement(.xml_decl);
-        try std.testing.expectEqualSlices(u8, "aa", decl.?.getAttribute("version").?);
-        try std.testing.expectEqual(@as(?[]const u8, null), decl.?.getAttribute("encoding"));
-        try std.testing.expectEqual(@as(?[]const u8, null), decl.?.getAttribute("standalone"));
+        var parser = Parser.init(a, "<?xml version='aa'?>");
+        const decl = (try parser.parseElement(.xml_decl)).?;
+        defer decl.destroy(a);
+        try std.testing.expectEqualSlices(u8, "aa", decl.getAttribute("version").?);
+        try std.testing.expectEqual(@as(?[]const u8, null), decl.getAttribute("encoding"));
+        try std.testing.expectEqual(@as(?[]const u8, null), decl.getAttribute("standalone"));
     }
 
     {
-        var parser = Parser.init("<?xml version=\"ccc\" encoding = 'bbb' standalone   \t =   'yes'?>");
-        const decl = try parser.parseElement(.xml_decl);
-        try std.testing.expectEqualSlices(u8, "ccc", decl.?.getAttribute("version").?);
-        try std.testing.expectEqualSlices(u8, "bbb", decl.?.getAttribute("encoding").?);
-        try std.testing.expectEqualSlices(u8, "yes", decl.?.getAttribute("standalone").?);
+        var parser = Parser.init(a, "<?xml version=\"ccc\" encoding = 'bbb' standalone   \t =   'yes'?>");
+        const decl = (try parser.parseElement(.xml_decl)).?;
+        defer decl.destroy(a);
+        try std.testing.expectEqualSlices(u8, "ccc", decl.getAttribute("version").?);
+        try std.testing.expectEqualSlices(u8, "bbb", decl.getAttribute("encoding").?);
+        try std.testing.expectEqualSlices(u8, "yes", decl.getAttribute("standalone").?);
     }
 }
 
@@ -629,6 +704,8 @@ test "xml: top level comments" {
         std.testing.allocator,
         "<?xml version='aa'?><!--comment--><python color='green'/><!--another comment-->",
     );
-    const doc = try parser.parse();
+
+    var doc = try parser.parse();
+    defer doc.deinit();
     try std.testing.expectEqualSlices(u8, "python", doc.root.tag);
 }

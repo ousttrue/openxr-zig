@@ -1,5 +1,4 @@
 const std = @import("std");
-const zbk = @import("zbk");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -16,27 +15,6 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(exe);
     exe.linkLibC();
 
-    // build openxr_loader
-    const openxr_dep = b.dependency("openxr", .{});
-    const openxr_loader = if (target.result.abi.isAndroid()) {
-        // break :blk try zbk.cpp.cmake.build(b, .{
-        //     .source = openxr_dep.path(""),
-        //     .build_dir_name = "build-android",
-        //     .ndk_path = ndk_path,
-        //     .args = &.{"-DDYNAMIC_LOADER=ON"},
-        // });
-        unreachable;
-    } else blk: {
-        const vcenv = try zbk.windows.VcEnv.init(b.allocator);
-        break :blk try zbk.cpp.cmake.build(b, .{
-            .source = openxr_dep.path(""),
-            .build_dir_name = "build-win32",
-            .envmap = vcenv.envmap,
-            .args = &.{"-DDYNAMIC_LOADER=ON"},
-        });
-    };
-    exe.addLibraryPath(openxr_loader.prefix.getDirectory().path(b, "lib"));
-    exe.linkSystemLibrary("openxr_loader");
     // copy dll
     const dll = b.addInstallBinFile(
         openxr_loader.prefix.getDirectory().path(b, "bin/openxr_loader.dll"),
@@ -44,13 +22,14 @@ pub fn build(b: *std.Build) !void {
     );
     b.getInstallStep().dependOn(&dll.step);
 
-    const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
-    const registry_path = if (xr_xml_path) |override_registry|
-        override_registry
-    else
-        "xr.xml";
+    // const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
+    // const registry_path = if (xr_xml_path) |override_registry|
+    //     override_registry
+    // else
+    //     "xr.xml";
+    const registry_path = openxr_dep.path("specification/registry/xr.xml");
     const openxr = b.dependency("xr_zig", .{
-        .registry = registry_path,
+        .registry = registry_path.getPath(b),
     }).module("openxr");
     exe.root_module.addImport("openxr", openxr);
 

@@ -4,4 +4,9 @@
     .minimum_zig_version = "0.15.1",
     .paths = .{""},
     .fingerprint = 0xb9c5875dce848634,
+    .dependencies = .{
+        .openxr_loader = .{
+            .path = "openxr_loader",
+        },
+    },
 }

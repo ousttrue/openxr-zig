@@ -314,6 +314,7 @@ fn parseDeclarations(allocator: std.mem.Allocator, root: *xml.Element) ![]Declar
 
 fn parseType(allocator: std.mem.Allocator, ty: *xml.Element) !?Declaration {
     if (ty.getAttribute("category")) |category| {
+        std.log.debug("{f}", .{ty});
         if (std.mem.eql(u8, category, "bitmask")) {
             return try parseBitmaskType(ty);
         } else if (std.mem.eql(u8, category, "handle")) {

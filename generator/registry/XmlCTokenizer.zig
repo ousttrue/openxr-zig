@@ -108,41 +108,55 @@ fn expect(self: *@This(), kind: CTokenizer.Token.Kind) !CTokenizer.Token {
 }
 
 // TYPEDEF = kw_typedef DECLARATION ';'
-pub fn parseTypedef(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) !Registry.Declaration {
-    const first_tok = (try self.next()) orelse return error.UnexpectedEof;
+pub fn parseTypedef(
+    self: *@This(),
+    allocator: std.mem.Allocator,
+    ptrs_optional: bool,
+) !Registry.Declaration {
+    var useNext = true;
+    while (useNext) {
+        useNext = false;
+        const first_tok = (try self.next()) orelse return error.UnexpectedEof;
 
-    _ = switch (first_tok.kind) {
-        .kw_typedef => {
-            const decl = try self.parseDeclaration(allocator, ptrs_optional);
-            _ = try self.expect(.semicolon);
-            if (try self.peek()) |_| {
+        _ = switch (first_tok.kind) {
+            .kw_typedef => {
+                const decl = try self.parseDeclaration(allocator, ptrs_optional);
+                _ = try self.expect(.semicolon);
+                if (try self.peek()) |t| {
+                    std.log.err("peek: {f}", .{t});
+                    // return error.InvalidSyntax;
+                    useNext = true;
+                    continue;
+                }
+
+                return Registry.Declaration{
+                    .name = decl.name orelse return error.MissingTypeIdentifier,
+                    .decl_type = .{ .typedef = decl.decl_type },
+                };
+            },
+            .type_name => {
+                if (std.mem.eql(u8, first_tok.text, "XR_DEFINE_ATOM") or
+                    std.mem.eql(u8, first_tok.text, "XR_DEFINE_OPAQUE_64"))
+                {
+                    _ = try self.expect(.lparen);
+                    const name = try self.expect(.name);
+                    _ = try self.expect(.rparen);
+
+                    return Registry.Declaration{
+                        .name = name.text,
+                        .decl_type = .{ .typedef = .{ .name = "uint64_t" } },
+                    };
+                }
+
                 return error.InvalidSyntax;
-            }
-
-            return Registry.Declaration{
-                .name = decl.name orelse return error.MissingTypeIdentifier,
-                .decl_type = .{ .typedef = decl.decl_type },
-            };
-        },
-        .type_name => {
-            if (!std.mem.eql(u8, first_tok.text, "XR_DEFINE_ATOM")) {
+            },
+            else => {
+                std.debug.print("unexpected first token in typedef: {}\n", .{first_tok.kind});
                 return error.InvalidSyntax;
-            }
-
-            _ = try self.expect(.lparen);
-            const name = try self.expect(.name);
-            _ = try self.expect(.rparen);
-
-            return Registry.Declaration{
-                .name = name.text,
-                .decl_type = .{ .typedef = .{ .name = "uint64_t" } },
-            };
-        },
-        else => {
-            std.debug.print("unexpected first token in typedef: {}\n", .{first_tok.kind});
-            return error.InvalidSyntax;
-        },
-    };
+            },
+        };
+    }
+    unreachable;
 }
 
 pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) !Registry.Declaration {
@@ -469,7 +483,7 @@ test "CTokenizer" {
 }
 
 test "XmlCTokenizer" {
-    const document = try xml.parse(std.testing.allocator,
+    var document = try xml.parse(std.testing.allocator,
         \\<root>// comment <name>commented name</name> <type>commented type</type> trailing
         \\    typedef void (XRAPI_PTR *<name>PFN_xrVoidFunction</name>)(void);
         \\</root>
@@ -494,7 +508,7 @@ test "XmlCTokenizer" {
 }
 
 test "parseTypedef" {
-    const document = try xml.parse(std.testing.allocator,
+    var document = try xml.parse(std.testing.allocator,
         \\<root> // comment <name>commented name</name> trailing
         \\    typedef const struct <type>Python</type>* pythons[4];
         \\ // more comments
@@ -511,7 +525,7 @@ test "parseTypedef" {
 
     try std.testing.expectEqualSlices(u8, "pythons", decl.name);
     const array = decl.decl_type.typedef.array;
-    try std.testing.expectEqual(Registry.ArraySize{ .int = 4 }, array.size);
+    try std.testing.expectEqual(Registry.Array.Size{ .int = 4 }, array.size);
     const ptr = array.child.pointer;
     try std.testing.expectEqual(true, ptr.is_const);
     try std.testing.expectEqualSlices(u8, "Python", ptr.child.name);

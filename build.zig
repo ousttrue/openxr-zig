@@ -19,12 +19,18 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(generator_exe);
 
+    const openxr_loader_dep = b.dependency("openxr_loader", .{
+        .target = target,
+    });
+    const use_openxr_xml = b.option(bool, "openxr_xml", "use specification/registry/xr.xml in openxr_sdk") orelse false;
+
     // or they can skip all that, and just make sure to pass `.registry = "path/to/xr.xml"` to `b.dependency`,
     // and then obtain the module directly via `.module("openxr-zig")`.
     const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
-    if (xr_xml_path) |path| {
+
+    if (get_xml(b, use_openxr_xml, openxr_loader_dep, xr_xml_path)) |path| {
         const generate_cmd = b.addRunArtifact(generator_exe);
-        generate_cmd.addArg(path);
+        generate_cmd.addFileArg(path);
         const xr_zig_dir = generate_cmd.addOutputDirectoryArg("xr");
         const xr_module = b.addModule("xr", .{
             .root_source_file = xr_zig_dir.path(b, "xr.zig"),
@@ -43,10 +49,11 @@ pub fn build(b: *std.Build) void {
 
     const test_target = b.addTest(.{
         .root_module = b.addModule("test", .{
-            .root_source_file = b.path("generator/main.zig"),
+            .root_source_file = b.path("generator/test.zig"),
             .target = target,
         }),
     });
+    b.installArtifact(test_target);
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(&b.addRunArtifact(test_target).step);
 
@@ -58,4 +65,20 @@ pub fn build(b: *std.Build) void {
     //     }),
     // });
     // b.installArtifact(generated);
+}
+
+fn get_xml(
+    b: *std.Build,
+    use_openxr_xml: bool,
+    openxr_loader_dep: *std.Build.Dependency,
+    maybe_xr_xml_path: ?[]const u8,
+) ?std.Build.LazyPath {
+    if (use_openxr_xml) {
+        // const openxr_dep = b.dependency("openxr", .{});
+        return openxr_loader_dep.namedWriteFiles("prefix").getDirectory().path(b, "xr.xml");
+    }
+    if (maybe_xr_xml_path) |xr_xml_path| {
+        return std.Build.LazyPath{ .cwd_relative = xr_xml_path };
+    }
+    return null;
 }
