@@ -1,10 +1,10 @@
 const std = @import("std");
-const Container = @import("Container.zig");
-const Enum = @import("Enum.zig");
-const c_types = @import("c_types.zig");
-const xml = @import("xml/xml.zig");
+const xml = @import("../xml/xml.zig");
 const XmlElement = xml.XmlDocument.Element;
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
+const c_types = @import("c_types.zig");
+const Container = @import("Container.zig");
+const Enum = @import("Enum.zig");
 const ApiConstant = @import("ApiConstant.zig");
 
 pub const Bitmask = struct {

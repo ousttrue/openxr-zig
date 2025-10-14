@@ -1,15 +1,13 @@
 const std = @import("std");
 const xml = @import("xml/xml.zig");
 const XmlElement = xml.XmlDocument.Element;
-const ApiConstant = @import("ApiConstant.zig");
-const Enum = @import("Enum.zig");
-const Extension = @import("Extension.zig");
 const Feature = @import("Feature.zig");
-const Declaration = @import("Declaration.zig");
+const Extension = @import("Extension.zig");
 const Require = @import("Require.zig");
+const c_types = @import("c_types/c_types.zig");
 
 const EnumFieldMerger = struct {
-    enum_extensions: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Enum.Field)),
+    enum_extensions: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(c_types.Enum.Field)),
     field_set: std.StringArrayHashMapUnmanaged(void),
 
     pub fn init() @This() {
@@ -23,11 +21,11 @@ const EnumFieldMerger = struct {
         self: *@This(),
         allocator: std.mem.Allocator,
         enum_name: []const u8,
-        field: Enum.Field,
+        field: c_types.Enum.Field,
     ) !void {
         const res = try self.enum_extensions.getOrPut(allocator, enum_name);
         if (!res.found_existing) {
-            res.value_ptr.* = std.ArrayListUnmanaged(Enum.Field){};
+            res.value_ptr.* = std.ArrayListUnmanaged(c_types.Enum.Field){};
         }
 
         try res.value_ptr.append(allocator, field);
@@ -45,7 +43,7 @@ const EnumFieldMerger = struct {
         self: *@This(),
         allocator: std.mem.Allocator,
         name: []const u8,
-        base_enum: *Enum,
+        base_enum: *c_types.Enum,
     ) !void {
         // If there are no extensions for this enum, assume its valid.
         const extensions = self.enum_extensions.get(name) orelse return;
@@ -53,7 +51,7 @@ const EnumFieldMerger = struct {
         self.field_set.clearRetainingCapacity();
 
         const n_fields_upper_bound = base_enum.fields.len + extensions.items.len;
-        const new_fields = try allocator.alloc(Enum.Field, n_fields_upper_bound);
+        const new_fields = try allocator.alloc(c_types.Enum.Field, n_fields_upper_bound);
         var i: usize = 0;
 
         for (base_enum.fields) |field| {
@@ -83,7 +81,7 @@ const EnumFieldMerger = struct {
         allocator: std.mem.Allocator,
         features: []Feature,
         extensions: []Extension,
-        decls: []Declaration,
+        decls: []c_types.Declaration,
     ) !void {
         for (features) |feature| {
             try self.addRequires(allocator, feature.requires);
@@ -126,13 +124,13 @@ pub const Tag = struct {
     }
 };
 
-decls: []Declaration,
-api_constants: []ApiConstant,
+decls: []c_types.Declaration,
+api_constants: []c_types.ApiConstant,
 tags: []Tag,
 features: []Feature,
 extensions: []Extension,
 
-pub fn getConstant(this: @This(), name: []const u8) ?ApiConstant {
+pub fn getConstant(this: @This(), name: []const u8) ?c_types.ApiConstant {
     for (this.api_constants) |c| {
         if (std.mem.eql(u8, name, c.name)) {
             return c;
@@ -158,8 +156,8 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     const doc = try xml.parse(allocator, xml_src);
 
     var registry = @This(){
-        .decls = try Declaration.parseDeclarations(allocator, doc.root),
-        .api_constants = try ApiConstant.parse(allocator, doc.root),
+        .decls = try c_types.Declaration.parseDeclarations(allocator, doc.root),
+        .api_constants = try c_types.ApiConstant.parse(allocator, doc.root),
         .tags = try Tag.parse(allocator, doc.root),
         .features = try Feature.parse(allocator, doc.root),
         .extensions = try Extension.parse(allocator, doc.root),

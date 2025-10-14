@@ -1,5 +1,5 @@
 const std = @import("std");
-const xml = @import("xml/xml.zig");
+const xml = @import("../xml/xml.zig");
 const XmlDocument = xml.XmlDocument;
 const Element = XmlDocument.Element;
 

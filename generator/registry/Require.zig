@@ -1,14 +1,13 @@
 const std = @import("std");
 const xml = @import("xml/xml.zig");
-const XmlDocument = xml.XmlDocument;
-const Element = XmlDocument.Element;
-const Enum = @import("Enum.zig");
+const Element = xml.XmlDocument.Element;
+const c_types = @import("c_types/c_types.zig");
 const FeatureLevel = @import("FeatureLevel.zig");
 
 pub const EnumExtension = struct {
     extends: []const u8,
     extnumber: ?u31,
-    field: Enum.Field,
+    field: c_types.Enum.Field,
 
     fn parse(elem: *Element, parent_extnumber: ?u31) !?@This() {
         // check for either _SPEC_VERSION or _EXTENSION_NAME
@@ -46,7 +45,7 @@ pub const EnumExtension = struct {
         return @This(){
             .extends = extends,
             .extnumber = parent_extnumber,
-            .field = try Enum.Field.parse(elem),
+            .field = try c_types.Enum.Field.parse(elem),
         };
     }
 

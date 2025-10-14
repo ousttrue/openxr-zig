@@ -1,6 +1,6 @@
 const std = @import("std");
 const c_types = @import("c_types.zig");
-const xml = @import("xml/xml.zig");
+const xml = @import("../xml/xml.zig");
 const XmlElement = xml.XmlDocument.Element;
 
 pub const Field = struct {

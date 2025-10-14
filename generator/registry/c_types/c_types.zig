@@ -1,7 +1,11 @@
 const std = @import("std");
-const xml = @import("xml/xml.zig");
+const xml = @import("../xml/xml.zig");
 const XmlElement = xml.XmlDocument.Element;
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
+pub const Enum = @import("Enum.zig");
+pub const Container = @import("Container.zig");
+pub const Declaration = @import("Declaration.zig");
+pub const ApiConstant = @import("ApiConstant.zig");
 
 pub const Command = struct {
     pub const Param = struct {
