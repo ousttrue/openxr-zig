@@ -81,6 +81,62 @@ pub const Container = struct {
     extends: ?[]const []const u8,
     fields: []Field,
     is_union: bool,
+
+    fn lenToPointer(members: []Field, len: []const u8) std.meta.Tuple(&.{ Pointer.PointerSize, bool }) {
+        for (members) |*member| {
+            if (std.mem.eql(u8, member.name, len)) {
+                member.is_buffer_len = true;
+                return .{ .{ .other_field = member.name }, member.is_optional };
+            }
+        }
+        if (std.mem.eql(u8, len, "null-terminated")) {
+            return .{ .zero_terminated, false };
+        } else {
+            return .{ .many, false };
+        }
+    }
+
+    fn parsePointerMeta(fields: []Field, type_info: *TypeInfo, elem: *Element) !void {
+        if (elem.getAttribute("len")) |lens| {
+            var it = std.mem.splitScalar(u8, lens, ',');
+            var current_type_info = type_info;
+            while (current_type_info.* == .pointer) {
+                // TODO: Check altlen
+                const size = if (it.next()) |len_str| blk: {
+                    const size_optional = lenToPointer(fields, len_str);
+                    current_type_info.pointer.is_optional = size_optional[1];
+                    break :blk size_optional[0];
+                } else .many;
+                current_type_info.pointer.size = size;
+                current_type_info = current_type_info.pointer.child;
+            }
+
+            if (it.next()) |_| {
+                // There are more elements in the `len` attribute than there are pointers
+                // Something probably went wrong
+                std.log.err("len: {s}", .{lens});
+                return error.InvalidRegistry;
+            }
+        }
+
+        if (elem.getAttribute("optional")) |optionals| {
+            var it = std.mem.splitScalar(u8, optionals, ',');
+            var current_type_info = type_info;
+            while (current_type_info.* == .pointer) {
+                if (it.next()) |current_optional| {
+                    current_type_info.pointer.is_optional = std.mem.eql(u8, current_optional, "true");
+                } else {
+                    current_type_info.pointer.is_optional = true;
+                    // There is no information for this pointer, probably incorrect.
+                    // return error.InvalidRegistry;
+                }
+
+                current_type_info = current_type_info.pointer.child;
+            }
+        } else if (std.mem.eql(u8, elem.getCharData("name") orelse "", "next")) {
+            type_info.pointer.is_optional = true;
+        }
+    }
 };
 
 pub const Bitmask = struct {
@@ -104,6 +160,62 @@ pub const Command = struct {
     return_type: *TypeInfo,
     success_codes: []const []const u8,
     error_codes: []const []const u8,
+
+    fn lenToPointer(params: []Param, len: []const u8) std.meta.Tuple(&.{ Pointer.PointerSize, bool }) {
+        for (params) |*param| {
+            if (std.mem.eql(u8, param.name, len)) {
+                param.is_buffer_len = true;
+                return .{ .{ .other_field = param.name }, false };
+            }
+        }
+        if (std.mem.eql(u8, len, "null-terminated")) {
+            return .{ .zero_terminated, false };
+        } else {
+            return .{ .many, false };
+        }
+    }
+
+    fn parsePointerMeta(fields: []Param, type_info: *TypeInfo, elem: *Element) !void {
+        if (elem.getAttribute("len")) |lens| {
+            var it = std.mem.splitScalar(u8, lens, ',');
+            var current_type_info = type_info;
+            while (current_type_info.* == .pointer) {
+                // TODO: Check altlen
+                const size = if (it.next()) |len_str| blk: {
+                    const size_optional = lenToPointer(fields, len_str);
+                    current_type_info.pointer.is_optional = size_optional[1];
+                    break :blk size_optional[0];
+                } else .many;
+                current_type_info.pointer.size = size;
+                current_type_info = current_type_info.pointer.child;
+            }
+
+            if (it.next()) |_| {
+                // There are more elements in the `len` attribute than there are pointers
+                // Something probably went wrong
+                std.log.err("len: {s}", .{lens});
+                return error.InvalidRegistry;
+            }
+        }
+
+        if (elem.getAttribute("optional")) |optionals| {
+            var it = std.mem.splitScalar(u8, optionals, ',');
+            var current_type_info = type_info;
+            while (current_type_info.* == .pointer) {
+                if (it.next()) |current_optional| {
+                    current_type_info.pointer.is_optional = std.mem.eql(u8, current_optional, "true");
+                } else {
+                    current_type_info.pointer.is_optional = true;
+                    // There is no information for this pointer, probably incorrect.
+                    // return error.InvalidRegistry;
+                }
+
+                current_type_info = current_type_info.pointer.child;
+            }
+        } else if (std.mem.eql(u8, elem.getCharData("name") orelse "", "next")) {
+            type_info.pointer.is_optional = true;
+        }
+    }
 
     pub fn parse(allocator: std.mem.Allocator, elem: *Element) !@This() {
         const proto = elem.findChildByTag("proto") orelse return error.InvalidRegistry;
@@ -161,7 +273,7 @@ pub const Command = struct {
         it = elem.findChildrenByTag("param");
         for (params) |*param| {
             const param_elem = it.next().?;
-            try parsePointerMeta(.{ .command = params }, &param.param_type, param_elem);
+            try Command.parsePointerMeta(params, &param.param_type, param_elem);
         }
 
         return .{
@@ -463,7 +575,7 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *Element, is_union: bool) !D
     it = ty.findChildrenByTag("member");
     for (members) |*member| {
         const member_elem = it.next().?;
-        try parsePointerMeta(.{ .container = members }, &member.field_type, member_elem);
+        try Container.parsePointerMeta(members, &member.field_type, member_elem);
 
         // next isn't always properly marked as optional, so just manually override it,
         if (std.mem.eql(u8, member.name, "next")) {
@@ -487,84 +599,6 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *Element, is_union: bool) !D
 fn parseFuncPointer(allocator: std.mem.Allocator, ty: *Element) !Declaration {
     var xctok = XmlCTokenizer.init(ty);
     return try xctok.parseTypedef(allocator, true);
-}
-
-// For some reason, the DeclarationType cannot be passed to lenToPointer, as
-// that causes the Zig compiler to generate invalid code for the function. Using a
-// dedicated enum fixes the issue...
-const Fields = union(enum) {
-    command: []Command.Param,
-    container: []Container.Field,
-};
-
-// returns .{ size, nullable }
-fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.PointerSize, bool }) {
-    switch (fields) {
-        .command => |params| {
-            for (params) |*param| {
-                if (std.mem.eql(u8, param.name, len)) {
-                    param.is_buffer_len = true;
-                    return .{ .{ .other_field = param.name }, false };
-                }
-            }
-        },
-        .container => |members| {
-            for (members) |*member| {
-                if (std.mem.eql(u8, member.name, len)) {
-                    member.is_buffer_len = true;
-                    return .{ .{ .other_field = member.name }, member.is_optional };
-                }
-            }
-        },
-    }
-
-    if (std.mem.eql(u8, len, "null-terminated")) {
-        return .{ .zero_terminated, false };
-    } else {
-        return .{ .many, false };
-    }
-}
-
-fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *Element) !void {
-    if (elem.getAttribute("len")) |lens| {
-        var it = std.mem.splitScalar(u8, lens, ',');
-        var current_type_info = type_info;
-        while (current_type_info.* == .pointer) {
-            // TODO: Check altlen
-            const size = if (it.next()) |len_str| blk: {
-                const size_optional = lenToPointer(fields, len_str);
-                current_type_info.pointer.is_optional = size_optional[1];
-                break :blk size_optional[0];
-            } else .many;
-            current_type_info.pointer.size = size;
-            current_type_info = current_type_info.pointer.child;
-        }
-
-        if (it.next()) |_| {
-            // There are more elements in the `len` attribute than there are pointers
-            // Something probably went wrong
-            std.log.err("len: {s}", .{lens});
-            return error.InvalidRegistry;
-        }
-    }
-
-    if (elem.getAttribute("optional")) |optionals| {
-        var it = std.mem.splitScalar(u8, optionals, ',');
-        var current_type_info = type_info;
-        while (current_type_info.* == .pointer) {
-            if (it.next()) |current_optional| {
-                current_type_info.pointer.is_optional = std.mem.eql(u8, current_optional, "true");
-            } else {
-                current_type_info.pointer.is_optional = true;
-                // There is no information for this pointer, probably incorrect.
-                // return error.InvalidRegistry;
-            }
-
-            current_type_info = current_type_info.pointer.child;
-        }
-    } else if (std.mem.eql(u8, elem.getCharData("name") orelse "", "next")) {
-        type_info.pointer.is_optional = true;
-    }
 }
 
 fn parseEnumAlias(elem: *Element) !?Declaration {
