@@ -5,6 +5,7 @@ const Element = XmlDocument.Element;
 const Registry = @import("Registry.zig");
 const CTokenizer = @import("CTokenizer.zig");
 const c_types = @import("c_types.zig");
+const Container = @import("Container.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -187,9 +188,13 @@ pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_opti
 }
 
 // MEMBER = DECLARATION (':' int)?
-pub fn parseMember(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) !Registry.Container.Field {
+pub fn parseMember(
+    self: *@This(),
+    allocator: std.mem.Allocator,
+    ptrs_optional: bool,
+) !Container.Field {
     const decl = try self.parseDeclaration(allocator, ptrs_optional);
-    var field = Registry.Container.Field{
+    var field = Container.Field{
         .name = decl.name orelse return error.MissingTypeIdentifier,
         .field_type = decl.decl_type,
         .bits = null,

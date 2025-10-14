@@ -5,6 +5,7 @@ const CTokenizer = @import("registry/CTokenizer.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const CaseStyle = IdRenderer.CaseStyle;
+const Container = @import("registry/Container.zig");
 const c_types = @import("registry/c_types.zig");
 
 const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
@@ -537,7 +538,12 @@ fn renderDecl(this: *Self, writer: *std.Io.Writer, decl: Registry.Declaration) !
     }
 }
 
-fn renderContainer(this: *Self, writer: *std.Io.Writer, name: []const u8, container: Registry.Container) !void {
+fn renderContainer(
+    this: *Self,
+    writer: *std.Io.Writer,
+    name: []const u8,
+    container: Container,
+) !void {
     try writer.writeAll("pub const ");
     try this.renderName(writer, name);
     try writer.writeAll(" = ");
@@ -607,7 +613,13 @@ fn renderContainer(this: *Self, writer: *std.Io.Writer, name: []const u8, contai
     try writer.writeAll("};\n");
 }
 
-fn renderContainerDefaultField(this: *Self, writer: *std.Io.Writer, container: Registry.Container, container_name: []const u8, field: Registry.Container.Field) !void {
+fn renderContainerDefaultField(
+    this: *Self,
+    writer: *std.Io.Writer,
+    container: Container,
+    container_name: []const u8,
+    field: Container.Field,
+) !void {
     if (mem.eql(u8, field.name, "next")) {
         try writer.writeAll(" = null");
     } else if (mem.eql(u8, field.name, "type")) {
