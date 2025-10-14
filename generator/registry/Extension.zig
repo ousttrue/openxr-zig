@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const FeatureLevel = @import("FeatureLevel.zig");
 const Require = @import("Require.zig");
 
@@ -28,7 +30,7 @@ pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("extension: {s}", .{this.name});
 }
 
-pub fn parseExtension(allocator: std.mem.Allocator, extension: *xml.Element) !@This() {
+pub fn parseExtension(allocator: std.mem.Allocator, extension: *Element) !@This() {
     const name = extension.getAttribute("name") orelse return error.InvalidRegistry;
     const platform = extension.getAttribute("platform");
     const version = try findExtVersion(extension);
@@ -109,7 +111,7 @@ fn splitCommaAlloc(allocator: std.mem.Allocator, text: []const u8) ![][]const u8
     return codes;
 }
 
-fn findExtVersion(extension: *xml.Element) !u32 {
+fn findExtVersion(extension: *Element) !u32 {
     var req_it = extension.findChildrenByTag("require");
     while (req_it.next()) |req| {
         var enum_it = req.findChildrenByTag("enum");
@@ -125,7 +127,7 @@ fn findExtVersion(extension: *xml.Element) !u32 {
     return error.InvalidRegistry;
 }
 
-pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+pub fn parse(allocator: std.mem.Allocator, root: *Element) ![]@This() {
     const extensions_elem = root.findChildByTag("extensions") orelse return error.InvalidRegistry;
 
     const extensions = try allocator.alloc(@This(), extensions_elem.children.len);

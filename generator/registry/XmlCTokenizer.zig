@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const Registry = @import("Registry.zig");
 const CTokenizer = @import("CTokenizer.zig");
 
@@ -21,17 +23,17 @@ pub const ParseError = error{
     MissingTypeIdentifier,
 };
 
-it: xml.Element.ChildIterator,
+it: Element.ChildIterator,
 ctok: ?CTokenizer = null,
 current: ?CTokenizer.Token = null,
 
-pub fn init(elem: *xml.Element) @This() {
+pub fn init(elem: *Element) @This() {
     return .{
         .it = elem.iterator(),
     };
 }
 
-fn elemToToken(elem: *xml.Element) !?CTokenizer.Token {
+fn elemToToken(elem: *Element) !?CTokenizer.Token {
     if (elem.children.len != 1 or elem.children[0] != .char_data) {
         return error.InvalidXml;
     }

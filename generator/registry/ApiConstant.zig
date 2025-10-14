@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
 
 pub const api_constants_name = "API Constants";
@@ -23,7 +25,7 @@ pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("[{s} => {f}]", .{ this.name, this.value });
 }
 
-pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+pub fn parse(allocator: std.mem.Allocator, root: *Element) ![]@This() {
     const enums = blk: {
         var it = root.findChildrenByTag("enums");
         while (it.next()) |child| {
@@ -95,7 +97,7 @@ pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
     return constants[0..i];
 }
 
-fn parseDefines(types: *xml.Element, out: []@This()) !usize {
+fn parseDefines(types: *Element, out: []@This()) !usize {
     var i: usize = 0;
     var it = types.findChildrenByTag("type");
     while (it.next()) |ty| {
@@ -128,7 +130,7 @@ fn parseDefines(types: *xml.Element, out: []@This()) !usize {
     return i;
 }
 
-fn parseExtensionDefines(extensions: *xml.Element, out: []@This()) !usize {
+fn parseExtensionDefines(extensions: *Element, out: []@This()) !usize {
     var i: usize = 0;
     var it = extensions.findChildrenByTag("extension");
 

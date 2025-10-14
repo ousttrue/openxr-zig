@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const Enum = @import("Enum.zig");
 const FeatureLevel = @import("FeatureLevel.zig");
 
@@ -8,7 +10,7 @@ pub const EnumExtension = struct {
     extnumber: ?u31,
     field: Enum.Field,
 
-    fn parse(elem: *xml.Element, parent_extnumber: ?u31) !?@This() {
+    fn parse(elem: *Element, parent_extnumber: ?u31) !?@This() {
         // check for either _SPEC_VERSION or _EXTENSION_NAME
         const extends = elem.getAttribute("extends") orelse return null;
 
@@ -61,7 +63,7 @@ commands: []const []const u8,
 required_feature_level: ?FeatureLevel,
 required_extension: ?[]const u8,
 
-pub fn parse(allocator: std.mem.Allocator, require: *xml.Element, extnumber: ?u31) !@This() {
+pub fn parse(allocator: std.mem.Allocator, require: *Element, extnumber: ?u31) !@This() {
     var n_extends: usize = 0;
     var n_types: usize = 0;
     var n_commands: usize = 0;

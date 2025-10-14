@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const EnumFieldMerger = @import("EnumFieldMerger.zig");
 const XmlCTokenizer = @import("XmlCTokenizer.zig");
 pub const ApiConstant = @import("ApiConstant.zig");
@@ -40,7 +42,7 @@ pub const Tag = struct {
     name: []const u8,
     author: []const u8,
 
-    fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+    fn parse(allocator: std.mem.Allocator, root: *Element) ![]@This() {
         var tags_elem = root.findChildByTag("tags") orelse return error.InvalidRegistry;
         const tags = try allocator.alloc(@This(), tags_elem.children.len);
 
@@ -103,7 +105,7 @@ pub const Command = struct {
     success_codes: []const []const u8,
     error_codes: []const []const u8,
 
-    pub fn parse(allocator: std.mem.Allocator, elem: *xml.Element) !@This() {
+    pub fn parse(allocator: std.mem.Allocator, elem: *Element) !@This() {
         const proto = elem.findChildByTag("proto") orelse return error.InvalidRegistry;
         var proto_xctok = XmlCTokenizer.init(proto);
         const command_decl = try proto_xctok.parseParamOrProto(allocator, false);
@@ -229,8 +231,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     };
     defer allocator.free(xml_src);
 
-    var parser = xml.Parser.init(allocator, xml_src);
-    const doc = try parser.parse();
+    const doc = try xml.parse(allocator, xml_src);
 
     var registry = @This(){
         .decls = try parseDeclarations(allocator, doc.root),
@@ -259,7 +260,7 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
     return registry;
 }
 
-fn parseDeclarations(allocator: std.mem.Allocator, root: *xml.Element) ![]Declaration {
+fn parseDeclarations(allocator: std.mem.Allocator, root: *Element) ![]Declaration {
     const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
     const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
 
@@ -312,7 +313,7 @@ fn parseDeclarations(allocator: std.mem.Allocator, root: *xml.Element) ![]Declar
     return decls[0..count];
 }
 
-fn parseType(allocator: std.mem.Allocator, ty: *xml.Element) !?Declaration {
+fn parseType(allocator: std.mem.Allocator, ty: *Element) !?Declaration {
     if (ty.getAttribute("category")) |category| {
         // std.log.debug("{f}", .{ty});
         if (std.mem.eql(u8, category, "bitmask")) {
@@ -338,7 +339,7 @@ fn parseType(allocator: std.mem.Allocator, ty: *xml.Element) !?Declaration {
     return null;
 }
 
-fn parseForeigntype(ty: *xml.Element) !Declaration {
+fn parseForeigntype(ty: *Element) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
     const depends = ty.getAttribute("requires") orelse if (std.mem.eql(u8, name, "int"))
         "openxr_platform_defines" // for some reason, int doesn't depend on xr_platform (but the other c types do)
@@ -351,7 +352,7 @@ fn parseForeigntype(ty: *xml.Element) !Declaration {
     };
 }
 
-fn parseBitmaskType(ty: *xml.Element) !Declaration {
+fn parseBitmaskType(ty: *Element) !Declaration {
     if (ty.getAttribute("name")) |name| {
         const alias = ty.getAttribute("alias") orelse return error.InvalidRegistry;
         return Declaration{
@@ -366,7 +367,7 @@ fn parseBitmaskType(ty: *xml.Element) !Declaration {
     }
 }
 
-fn parseHandleType(ty: *xml.Element) !Declaration {
+fn parseHandleType(ty: *Element) !Declaration {
     // Parent is not handled in case of an alias
     if (ty.getAttribute("name")) |name| {
         const alias = ty.getAttribute("alias") orelse return error.InvalidRegistry;
@@ -394,7 +395,7 @@ fn parseHandleType(ty: *xml.Element) !Declaration {
     }
 }
 
-fn parseBaseType(allocator: std.mem.Allocator, ty: *xml.Element) !Declaration {
+fn parseBaseType(allocator: std.mem.Allocator, ty: *Element) !Declaration {
     const name = ty.getCharData("name") orelse return error.InvalidRegistry;
     if (ty.getCharData("type")) |_| {
         var tok = XmlCTokenizer.init(ty);
@@ -409,7 +410,7 @@ fn parseBaseType(allocator: std.mem.Allocator, ty: *xml.Element) !Declaration {
     }
 }
 
-fn parseContainer(allocator: std.mem.Allocator, ty: *xml.Element, is_union: bool) !Declaration {
+fn parseContainer(allocator: std.mem.Allocator, ty: *Element, is_union: bool) !Declaration {
     const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
 
     if (ty.getAttribute("alias")) |alias| {
@@ -483,7 +484,7 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *xml.Element, is_union: bool
     };
 }
 
-fn parseFuncPointer(allocator: std.mem.Allocator, ty: *xml.Element) !Declaration {
+fn parseFuncPointer(allocator: std.mem.Allocator, ty: *Element) !Declaration {
     var xctok = XmlCTokenizer.init(ty);
     return try xctok.parseTypedef(allocator, true);
 }
@@ -524,7 +525,7 @@ fn lenToPointer(fields: Fields, len: []const u8) std.meta.Tuple(&.{ Pointer.Poin
     }
 }
 
-fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *xml.Element) !void {
+fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *Element) !void {
     if (elem.getAttribute("len")) |lens| {
         var it = std.mem.splitScalar(u8, lens, ',');
         var current_type_info = type_info;
@@ -566,7 +567,7 @@ fn parsePointerMeta(fields: Fields, type_info: *TypeInfo, elem: *xml.Element) !v
     }
 }
 
-fn parseEnumAlias(elem: *xml.Element) !?Declaration {
+fn parseEnumAlias(elem: *Element) !?Declaration {
     if (elem.getAttribute("alias")) |alias| {
         const name = elem.getAttribute("name") orelse return error.InvalidRegistry;
         return Declaration{

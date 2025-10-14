@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 
 pub const Value = union(enum) {
     bitpos: u5, // 1 << bitpos
@@ -15,7 +17,7 @@ pub const Field = struct {
     name: []const u8,
     value: Value,
 
-    pub fn parse(field: *xml.Element) !@This() {
+    pub fn parse(field: *Element) !@This() {
         const is_compat_alias = if (field.getAttribute("comment")) |comment|
             std.mem.eql(u8, comment, "Backwards-compatible alias containing a typo") or
                 std.mem.eql(u8, comment, "Deprecated name for backwards compatibility")
@@ -57,7 +59,7 @@ pub const Field = struct {
 fields: []Field,
 is_bitmask: bool,
 
-pub fn parse(allocator: std.mem.Allocator, elem: *xml.Element) !@This() {
+pub fn parse(allocator: std.mem.Allocator, elem: *Element) !@This() {
     // TODO: `type` was added recently, fall back to checking endswith FlagBits for older versions?
     const enum_type = elem.getAttribute("type") orelse return error.InvalidRegistry;
     const is_bitmask = std.mem.eql(u8, enum_type, "bitmask");

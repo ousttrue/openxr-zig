@@ -1,5 +1,7 @@
 const std = @import("std");
-const xml = @import("xml.zig");
+const xml = @import("xml/xml.zig");
+const XmlDocument = xml.XmlDocument;
+const Element = XmlDocument.Element;
 const FeatureLevel = @import("FeatureLevel.zig");
 const Require = @import("Require.zig");
 
@@ -11,7 +13,7 @@ pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("feature: {s}", .{this.name});
 }
 
-pub fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !@This() {
+pub fn parseFeature(allocator: std.mem.Allocator, feature: *Element) !@This() {
     const name = feature.getAttribute("name") orelse return error.InvalidRegistry;
     const feature_level = blk: {
         const number = feature.getAttribute("number") orelse return error.InvalidRegistry;
@@ -33,7 +35,7 @@ pub fn parseFeature(allocator: std.mem.Allocator, feature: *xml.Element) !@This(
     };
 }
 
-pub fn parse(allocator: std.mem.Allocator, root: *xml.Element) ![]@This() {
+pub fn parse(allocator: std.mem.Allocator, root: *Element) ![]@This() {
     var it = root.findChildrenByTag("feature");
     var count: usize = 0;
     while (it.next()) |_| count += 1;
