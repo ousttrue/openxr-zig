@@ -5,12 +5,6 @@ const Element = XmlDocument.Element;
 const Registry = @import("Registry.zig");
 const CTokenizer = @import("CTokenizer.zig");
 
-pub const Declaration = struct {
-    name: ?[]const u8, // Parameter names may be optional, especially in case of func(void)
-    decl_type: Registry.TypeInfo,
-    is_const: bool,
-};
-
 pub const ParseError = error{
     OutOfMemory,
     InvalidSyntax,
@@ -221,10 +215,20 @@ pub fn parseMember(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: 
     return field;
 }
 
+pub const CDeclaration = struct {
+    name: ?[]const u8, // Parameter names may be optional, especially in case of func(void)
+    decl_type: Registry.TypeInfo,
+    is_const: bool,
+};
+
 // DECLARATION = kw_const? type_name DECLARATOR
 // DECLARATOR = POINTERS (id | name)? ('[' ARRAY_DECLARATOR ']')*
 //     | POINTERS '(' FNPTRSUFFIX
-fn parseDeclaration(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: bool) ParseError!Declaration {
+fn parseDeclaration(
+    self: *@This(),
+    allocator: std.mem.Allocator,
+    ptrs_optional: bool,
+) ParseError!CDeclaration {
     // Parse declaration constness
     var tok = try self.nextNoEof();
     const inner_is_const = tok.kind == .kw_const;
@@ -247,7 +251,7 @@ fn parseDeclaration(self: *@This(), allocator: std.mem.Allocator, ptrs_optional:
     // Parse name / fn ptr
 
     if (try self.parseFnPtrSuffix(allocator, type_info, ptrs_optional)) |decl| {
-        return Declaration{
+        return CDeclaration{
             .name = decl.name,
             .decl_type = decl.decl_type,
             .is_const = inner_is_const,
@@ -283,7 +287,7 @@ fn parseDeclaration(self: *@This(), allocator: std.mem.Allocator, ptrs_optional:
         inner_type = child;
     }
 
-    return Declaration{
+    return CDeclaration{
         .name = name,
         .decl_type = type_info,
         .is_const = inner_is_const,
@@ -291,7 +295,12 @@ fn parseDeclaration(self: *@This(), allocator: std.mem.Allocator, ptrs_optional:
 }
 
 // FNPTRSUFFIX = kw_xrapi_ptr '*' name' ')' '(' ('void' | (DECLARATION (',' DECLARATION)*)?) ')'
-fn parseFnPtrSuffix(self: *@This(), allocator: std.mem.Allocator, return_type: Registry.TypeInfo, ptrs_optional: bool) !?Declaration {
+fn parseFnPtrSuffix(
+    self: *@This(),
+    allocator: std.mem.Allocator,
+    return_type: Registry.TypeInfo,
+    ptrs_optional: bool,
+) !?CDeclaration {
     const lparen = try self.peek();
     if (lparen == null or lparen.?.kind != .lparen) {
         return null;
@@ -315,7 +324,7 @@ fn parseFnPtrSuffix(self: *@This(), allocator: std.mem.Allocator, return_type: R
     const return_type_heap = try allocator.create(Registry.TypeInfo);
     return_type_heap.* = return_type;
 
-    var command_ptr = Declaration{
+    var command_ptr = CDeclaration{
         .name = name.text,
         .decl_type = .{
             .command_ptr = .{
