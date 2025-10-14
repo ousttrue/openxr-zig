@@ -22,14 +22,6 @@ pub fn main() !void {
     // for (registry.extensions) |extension| {
     //     std.log.debug("{f}", .{extension});
     // }
-    for (registry.features) |feature| {
-        std.log.debug("[feature: {s}]", .{feature.name});
-        //     for (feature.requires) |req| {
-        //         for (req.commands) |command| {
-        //             std.log.debug("{s}", .{command});
-        //         }
-        //     }
-    }
 
     var renderer = try Renderer.init(arena.allocator(), &registry);
     defer renderer.deinit();
@@ -63,7 +55,7 @@ fn formatZigSource(allocator: std.mem.Allocator, src: [:0]u8) ![]const u8 {
 fn writeFile(cwd: std.fs.Dir, out_path: []const u8, content: []const u8) !void {
     if (std.fs.path.dirname(out_path)) |dir| {
         cwd.access(dir, .{}) catch {
-            std.log.debug("mkdir: {s}", .{dir});
+            // std.log.debug("mkdir: {s}", .{dir});
             try cwd.makePath(dir);
         };
     }

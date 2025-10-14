@@ -8,5 +8,28 @@
         .xr_zig = .{
             .path = "..",
         },
+        .openxr_loader = .{
+            .path = "../openxr_loader",
+        },
+        .openxr_1_0_26 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.26.zip",
+            .hash = "N-V-__8AAL6oKQDqRa1QLRa5zgRmgNTjBoMhAXd_5FcmMy1A",
+        },
+        .openxr_1_0_27 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.27.zip",
+            .hash = "N-V-__8AADpALQA70Vt5KgmUKBeE3mIzBtSAjvj0ivcSlhqo",
+        },
+        .openxr_1_0_34 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.0.34.zip",
+            .hash = "N-V-__8AAAfqNAAi14j9jD6zZzPY1_gGHxtTAt5kL5wPi7EV",
+        },
+        .openxr_1_1_36 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.1.36.zip",
+            .hash = "N-V-__8AALTgNgCL1AaSIW43O2mTANM6GKPZLZ1FgfgcHvPF",
+        },
+        .openxr_1_1_52 = .{
+            .url = "https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.1.52.zip",
+            .hash = "N-V-__8AAFPjQwB8_BR6KTRrHVq64cPpenQrApBu9vK4ZqpZ",
+        },
     },
 }

@@ -295,7 +295,16 @@ fn parseFnPtrSuffix(self: *@This(), allocator: std.mem.Allocator, return_type: R
         return null;
     }
     _ = try self.nextNoEof();
-    _ = try self.expect(.kw_xrapi_ptr);
+
+    if (try self.peek()) |kw_xrapi_ptr| {
+        if (kw_xrapi_ptr.kind == .kw_xrapi_ptr) {
+            _ = try self.expect(.kw_xrapi_ptr);
+        } else {
+            // skip
+        }
+    } else {
+        return null;
+    }
     _ = try self.expect(.star);
     const name = try self.expect(.name);
     _ = try self.expect(.rparen);
@@ -505,6 +514,15 @@ test "XmlCTokenizer" {
         .{ .kind = .rparen, .text = ")" },
         .{ .kind = .semicolon, .text = ";" },
     });
+}
+
+test "parseTypedef_1_1_50" {
+    const xml_src =
+        \\<type category="funcpointer">typedef PFN_xrVoidFunction (*<name>PFN_xrEglGetProcAddressMNDX</name>)(const <type>char</type> *name);</type>
+    ;
+
+    var document = try xml.parse(std.testing.allocator, xml_src);
+    defer document.deinit();
 }
 
 test "parseTypedef" {

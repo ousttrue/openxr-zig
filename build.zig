@@ -1,8 +1,49 @@
 const std = @import("std");
 
+const OpenXrVersion = enum {
+    @"1_0_26",
+    @"1_0_27",
+    @"1_0_34", // 1.0 last
+    @"1_1_36", // 1.1 first
+    @"1_1_52",
+};
+
+fn get_xml(
+    b: *std.Build,
+    maybe_xr_xml_path: ?std.Build.LazyPath,
+    maybe_sdk_version: ?OpenXrVersion,
+) ?std.Build.LazyPath {
+    if (maybe_xr_xml_path) |xr_xml_path| {
+        return xr_xml_path;
+    }
+    if (maybe_sdk_version) |sdk_version| {
+        const openxr_dep = switch (sdk_version) {
+            .@"1_0_26" => b.dependency("openxr_1_0_26", .{}),
+            .@"1_0_27" => b.dependency("openxr_1_0_27", .{}),
+            .@"1_0_34" => b.dependency("openxr_1_0_34", .{}),
+            .@"1_1_36" => b.dependency("openxr_1_1_36", .{}),
+            .@"1_1_52" => b.dependency("openxr_1_1_52", .{}),
+        };
+        return openxr_dep.path("specification/registry/xr.xml");
+    }
+    return null;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const xr_xml_path = b.option(
+        std.Build.LazyPath,
+        "path",
+        "xr.xml path.",
+    );
+
+    const use_openxr_xml = b.option(
+        OpenXrVersion,
+        "version",
+        "xr.xml from specification/registry/xr.xml in openxr-sdk version",
+    );
 
     // using the package manager, this artifact can be obtained by the user
     // through `b.dependency(<name in build.zig.zon>, .{}).artifact("openxr-zig-generator")`.
@@ -19,16 +60,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(generator_exe);
 
-    const openxr_loader_dep = b.dependency("openxr_loader", .{
-        .target = target,
-    });
-    const use_openxr_xml = b.option(bool, "openxr_xml", "use specification/registry/xr.xml in openxr_sdk") orelse false;
-
-    // or they can skip all that, and just make sure to pass `.registry = "path/to/xr.xml"` to `b.dependency`,
-    // and then obtain the module directly via `.module("openxr-zig")`.
-    const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
-
-    if (get_xml(b, use_openxr_xml, openxr_loader_dep, xr_xml_path)) |path| {
+    if (get_xml(b, xr_xml_path, use_openxr_xml)) |path| {
         const generate_cmd = b.addRunArtifact(generator_exe);
         generate_cmd.addFileArg(path);
         const xr_zig_dir = generate_cmd.addOutputDirectoryArg("xr");
@@ -65,20 +97,4 @@ pub fn build(b: *std.Build) void {
     //     }),
     // });
     // b.installArtifact(generated);
-}
-
-fn get_xml(
-    b: *std.Build,
-    use_openxr_xml: bool,
-    openxr_loader_dep: *std.Build.Dependency,
-    maybe_xr_xml_path: ?[]const u8,
-) ?std.Build.LazyPath {
-    if (use_openxr_xml) {
-        // const openxr_dep = b.dependency("openxr", .{});
-        return openxr_loader_dep.namedWriteFiles("prefix").getDirectory().path(b, "xr.xml");
-    }
-    if (maybe_xr_xml_path) |xr_xml_path| {
-        return std.Build.LazyPath{ .cwd_relative = xr_xml_path };
-    }
-    return null;
 }

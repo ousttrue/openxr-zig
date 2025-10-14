@@ -15,21 +15,23 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(exe);
     exe.linkLibC();
 
+    const openxr_dep = b.dependency("openxr_1_0_26", .{});
+    const openxr_loader_dep = b.dependency("openxr_loader", .{
+        .path = openxr_dep.path(""),
+    });
+    const openxr_loader_prefix = openxr_loader_dep.namedWriteFiles("prefix");
+    // link
+    exe.addLibraryPath(openxr_loader_prefix.getDirectory().path(b, "lib"));
+    exe.linkSystemLibrary("openxr_loader");
     // copy dll
     const dll = b.addInstallBinFile(
-        openxr_loader.prefix.getDirectory().path(b, "bin/openxr_loader.dll"),
+        openxr_loader_prefix.getDirectory().path(b, "bin/openxr_loader.dll"),
         "openxr_loader.dll",
     );
     b.getInstallStep().dependOn(&dll.step);
 
-    // const xr_xml_path: ?[]const u8 = b.option([]const u8, "registry", "Override the path to the OpenXR registry");
-    // const registry_path = if (xr_xml_path) |override_registry|
-    //     override_registry
-    // else
-    //     "xr.xml";
-    const registry_path = openxr_dep.path("specification/registry/xr.xml");
     const openxr = b.dependency("xr_zig", .{
-        .registry = registry_path.getPath(b),
+        .path = openxr_dep.path("specification/registry/xr.xml"),
     }).module("openxr");
     exe.root_module.addImport("openxr", openxr);
 
