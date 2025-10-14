@@ -120,8 +120,8 @@ pub fn parseTypedef(
             .kw_typedef => {
                 const decl = try self.parseDeclaration(allocator, ptrs_optional);
                 _ = try self.expect(.semicolon);
-                if (try self.peek()) |t| {
-                    std.log.err("peek: {f}", .{t});
+                if (try self.peek()) |_| {
+                    // std.log.err("peek: {f}", .{t});
                     // return error.InvalidSyntax;
                     useNext = true;
                     continue;
@@ -484,34 +484,27 @@ pub fn parseVersion(self: *@This()) ![3][]const u8 {
     return version;
 }
 
-fn testTokenizer(tokenizer: anytype, expected_tokens: []const CTokenizer.Token) !void {
-    for (expected_tokens) |expected| {
-        const tok = (tokenizer.next() catch unreachable).?;
-        try std.testing.expectEqual(expected.kind, tok.kind);
-        try std.testing.expectEqualSlices(u8, expected.text, tok.text);
+fn testTokenizer(tokenizer: *@This(), expected_tokens: []const CTokenizer.Token) !void {
+    for (expected_tokens, 0..) |expected, i| {
+        if (try tokenizer.next()) |tok| {
+            std.testing.expectEqual(expected.kind, tok.kind) catch |e| {
+                std.log.err("[{}] {f} != {f}", .{ i, expected, tok });
+                return e;
+            };
+            std.testing.expectEqualSlices(u8, expected.text, tok.text) catch |e| {
+                std.log.err("[{}] {f} != {f}", .{ i, expected, tok });
+                return e;
+            };
+        } else {
+            std.log.err("[{}] {f} != null", .{ i, expected });
+            return error.token_short;
+        }
     }
 
-    if (tokenizer.next() catch unreachable) |_| unreachable;
-}
-
-test "CTokenizer" {
-    var ctok = CTokenizer{ .source = "typedef ([const)]** XRAPI_PTR 123,;aaaa" };
-
-    try testTokenizer(&ctok, &[_]CTokenizer.Token{
-        .{ .kind = .kw_typedef, .text = "typedef" },
-        .{ .kind = .lparen, .text = "(" },
-        .{ .kind = .lbracket, .text = "[" },
-        .{ .kind = .kw_const, .text = "const" },
-        .{ .kind = .rparen, .text = ")" },
-        .{ .kind = .rbracket, .text = "]" },
-        .{ .kind = .star, .text = "*" },
-        .{ .kind = .star, .text = "*" },
-        .{ .kind = .kw_xrapi_ptr, .text = "XRAPI_PTR" },
-        .{ .kind = .int, .text = "123" },
-        .{ .kind = .comma, .text = "," },
-        .{ .kind = .semicolon, .text = ";" },
-        .{ .kind = .id, .text = "aaaa" },
-    });
+    if (tokenizer.next() catch unreachable) |tok| {
+        std.log.err("[{}] null != {f}", .{ expected_tokens.len, tok });
+        return error.token_remaining;
+    }
 }
 
 test "XmlCTokenizer" {
@@ -523,7 +516,6 @@ test "XmlCTokenizer" {
     defer document.deinit();
 
     var xctok = @This().init(document.root);
-
     try testTokenizer(&xctok, &[_]CTokenizer.Token{
         .{ .kind = .kw_typedef, .text = "typedef" },
         .{ .kind = .id, .text = "void" },
@@ -546,6 +538,23 @@ test "parseTypedef_1_1_50" {
 
     var document = try xml.parse(std.testing.allocator, xml_src);
     defer document.deinit();
+
+    var xctok = @This().init(document.root);
+    try testTokenizer(&xctok, &[_]CTokenizer.Token{
+        .{ .kind = .kw_typedef, .text = "typedef" },
+        .{ .kind = .id, .text = "PFN_xrVoidFunction" },
+        .{ .kind = .lparen, .text = "(" },
+        .{ .kind = .star, .text = "*" },
+        .{ .kind = .name, .text = "PFN_xrEglGetProcAddressMNDX" },
+        .{ .kind = .rparen, .text = ")" },
+        .{ .kind = .lparen, .text = "(" },
+        .{ .kind = .kw_const, .text = "const" },
+        .{ .kind = .type_name, .text = "char" },
+        .{ .kind = .star, .text = "*" },
+        .{ .kind = .id, .text = "name" },
+        .{ .kind = .rparen, .text = ")" },
+        .{ .kind = .semicolon, .text = ";" },
+    });
 }
 
 test "parseTypedef" {

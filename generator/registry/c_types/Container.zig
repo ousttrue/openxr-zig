@@ -34,29 +34,37 @@ fn lenToPointer(members: []Field, len: []const u8) std.meta.Tuple(&.{
 }
 
 pub fn parsePointerMeta(
-    fields: []Field,
     type_info: *c_types.TypeInfo,
+    fields: []Field,
     elem: *XmlElement,
 ) !void {
     if (elem.getAttribute("len")) |lens| {
-        var it = std.mem.splitScalar(u8, lens, ',');
-        var current_type_info = type_info;
-        while (current_type_info.* == .pointer) {
-            // TODO: Check altlen
-            const size = if (it.next()) |len_str| blk: {
-                const size_optional = lenToPointer(fields, len_str);
-                current_type_info.pointer.is_optional = size_optional[1];
-                break :blk size_optional[0];
-            } else .many;
-            current_type_info.pointer.size = size;
-            current_type_info = current_type_info.pointer.child;
-        }
-
-        if (it.next()) |_| {
-            // There are more elements in the `len` attribute than there are pointers
-            // Something probably went wrong
-            std.log.err("len: {s}", .{lens});
-            return error.InvalidRegistry;
+        switch (type_info.*) {
+            .pointer => {
+                // <member len="enabledApiLayerCount,null-terminated">const <type>char</type>* const*      <name>enabledApiLayerNames</name></member>
+                var it = std.mem.splitScalar(u8, lens, ',');
+                var current_type_info = type_info;
+                while (current_type_info.* == .pointer) {
+                    // TODO: Check altlen
+                    const size = if (it.next()) |len_str| blk: {
+                        const size_optional = lenToPointer(fields, len_str);
+                        current_type_info.pointer.is_optional = size_optional[1];
+                        break :blk size_optional[0];
+                    } else .many;
+                    current_type_info.pointer.size = size;
+                    current_type_info = current_type_info.pointer.child;
+                }
+                if (it.next()) |_| {
+                    // There are more elements in the `len` attribute than there are pointers
+                    // Something probably went wrong
+                    std.log.err("len: {s}", .{lens});
+                    return error.InvalidRegistry;
+                }
+            },
+            else => {
+                // <member len="viewCount">const <type>XrCompositionLayerProjectionView</type>* <name>views</name></member>
+                // <member len="bufferSize"><type>uint8_t</type> <name>buffer</name>[<enum>XR_MAX_COLOCATION_DISCOVERY_BUFFER_SIZE_META</enum>]</member>
+            },
         }
     }
 

@@ -181,3 +181,9 @@ pub fn load(allocator: std.mem.Allocator, xml_path: []const u8) !@This() {
 
     return registry;
 }
+
+test {
+    std.testing.refAllDecls(@import("xml/xml.zig"));
+    std.testing.refAllDecls(@import("c_types/XmlCTokenizer.zig"));
+    std.testing.refAllDecls(@import("c_types/CTokenizer.zig"));
+}

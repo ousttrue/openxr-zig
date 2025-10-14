@@ -56,9 +56,14 @@ pub fn parseDeclarations(allocator: std.mem.Allocator, root: *XmlElement) ![]@Th
     {
         var it = types_elem.findChildrenByTag("type");
         while (it.next()) |ty| {
-            if (try parseType(allocator, ty)) |decl| {
-                decls[count] = decl;
-                count += 1;
+            if (parseType(allocator, ty)) |maybe_decl| {
+                if (maybe_decl) |decl| {
+                    decls[count] = decl;
+                    count += 1;
+                }
+            } else |e| {
+                std.log.err("{f}", .{ty});
+                return e;
             }
         }
     }
@@ -195,27 +200,29 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *XmlElement, is_union: bool)
     var members = try allocator.alloc(Container.Field, ty.children.len);
 
     var i: usize = 0;
-    var it = ty.findChildrenByTag("member");
     var maybe_stype: ?[]const u8 = null;
-    while (it.next()) |member| {
-        var xctok = XmlCTokenizer.init(member);
-        members[i] = try xctok.parseMember(allocator, false);
-        if (std.mem.eql(u8, members[i].name, "type")) {
-            if (member.getAttribute("values")) |stype| {
-                maybe_stype = stype;
+    {
+        var it = ty.findChildrenByTag("member");
+        while (it.next()) |member| {
+            var xctok = XmlCTokenizer.init(member);
+            members[i] = try xctok.parseMember(allocator, false);
+            if (std.mem.eql(u8, members[i].name, "type")) {
+                if (member.getAttribute("values")) |stype| {
+                    maybe_stype = stype;
+                }
             }
-        }
 
-        if (member.getAttribute("optional")) |optionals| {
-            var optional_it = std.mem.splitScalar(u8, optionals, ',');
-            if (optional_it.next()) |first_optional| {
-                members[i].is_optional = std.mem.eql(u8, first_optional, "true");
-            } else {
-                // Optional is empty, probably incorrect.
-                return error.InvalidRegistry;
+            if (member.getAttribute("optional")) |optionals| {
+                var optional_it = std.mem.splitScalar(u8, optionals, ',');
+                if (optional_it.next()) |first_optional| {
+                    members[i].is_optional = std.mem.eql(u8, first_optional, "true");
+                } else {
+                    // Optional is empty, probably incorrect.
+                    return error.InvalidRegistry;
+                }
             }
+            i += 1;
         }
-        i += 1;
     }
 
     members = members[0..i];
@@ -232,14 +239,19 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *XmlElement, is_union: bool)
         }
     }
 
-    it = ty.findChildrenByTag("member");
-    for (members) |*member| {
-        const member_elem = it.next().?;
-        try Container.parsePointerMeta(members, &member.field_type, member_elem);
+    {
+        var it = ty.findChildrenByTag("member");
+        for (members) |*member| {
+            const member_elem = it.next().?;
+            Container.parsePointerMeta(&member.field_type, members, member_elem) catch |e| {
+                std.log.err("{f}", .{member_elem});
+                return e;
+            };
 
-        // next isn't always properly marked as optional, so just manually override it,
-        if (std.mem.eql(u8, member.name, "next")) {
-            member.field_type.pointer.is_optional = true;
+            // next isn't always properly marked as optional, so just manually override it,
+            if (std.mem.eql(u8, member.name, "next")) {
+                member.field_type.pointer.is_optional = true;
+            }
         }
     }
 

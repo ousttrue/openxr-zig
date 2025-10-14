@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(exe);
     exe.linkLibC();
 
-    const openxr_dep = b.dependency("openxr_1_0_26", .{});
+    const openxr_dep = b.dependency("openxr_1_1_52", .{});
     const openxr_loader_dep = b.dependency("openxr_loader", .{
         .path = openxr_dep.path(""),
     });

@@ -147,3 +147,46 @@ pub fn next(self: *@This()) !?Token {
     _ = self.consumeNoEof();
     return Token{ .kind = kind, .text = self.source[start..self.offset] };
 }
+
+fn testTokenizer(tokenizer: *@This(), expected_tokens: []const Token) !void {
+    for (expected_tokens, 0..) |expected, i| {
+        if (try tokenizer.next()) |tok| {
+            std.testing.expectEqual(expected.kind, tok.kind) catch |e| {
+                std.log.err("[{}] {f} != {f}", .{ i, expected, tok });
+                return e;
+            };
+            std.testing.expectEqualSlices(u8, expected.text, tok.text) catch |e| {
+                std.log.err("[{}] {f} != {f}", .{ i, expected, tok });
+                return e;
+            };
+        } else {
+            std.log.err("[{}] {f} != null", .{ i, expected });
+            return error.token_short;
+        }
+    }
+
+    if (tokenizer.next() catch unreachable) |tok| {
+        std.log.err("[{}] null != {f}", .{ expected_tokens.len, tok });
+        return error.token_remaining;
+    }
+}
+
+test "CTokenizer" {
+    var ctok = @This(){ .source = "typedef ([const)]** XRAPI_PTR 123,;aaaa" };
+
+    try testTokenizer(&ctok, &[_]@This().Token{
+        .{ .kind = .kw_typedef, .text = "typedef" },
+        .{ .kind = .lparen, .text = "(" },
+        .{ .kind = .lbracket, .text = "[" },
+        .{ .kind = .kw_const, .text = "const" },
+        .{ .kind = .rparen, .text = ")" },
+        .{ .kind = .rbracket, .text = "]" },
+        .{ .kind = .star, .text = "*" },
+        .{ .kind = .star, .text = "*" },
+        .{ .kind = .kw_xrapi_ptr, .text = "XRAPI_PTR" },
+        .{ .kind = .int, .text = "123" },
+        .{ .kind = .comma, .text = "," },
+        .{ .kind = .semicolon, .text = ";" },
+        .{ .kind = .id, .text = "aaaa" },
+    });
+}
