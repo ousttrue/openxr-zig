@@ -4,6 +4,7 @@ const XmlDocument = xml.XmlDocument;
 const Element = XmlDocument.Element;
 const Registry = @import("Registry.zig");
 const CTokenizer = @import("CTokenizer.zig");
+const c_types = @import("c_types.zig");
 
 pub const ParseError = error{
     OutOfMemory,
@@ -164,7 +165,7 @@ pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_opti
     // Decay pointers
     switch (decl.decl_type) {
         .array => {
-            const child = try allocator.create(Registry.TypeInfo);
+            const child = try allocator.create(c_types.TypeInfo);
             child.* = decl.decl_type;
 
             decl.decl_type = .{
@@ -217,7 +218,7 @@ pub fn parseMember(self: *@This(), allocator: std.mem.Allocator, ptrs_optional: 
 
 pub const CDeclaration = struct {
     name: ?[]const u8, // Parameter names may be optional, especially in case of func(void)
-    decl_type: Registry.TypeInfo,
+    decl_type: c_types.TypeInfo,
     is_const: bool,
 };
 
@@ -243,7 +244,7 @@ fn parseDeclaration(
     if (tok.kind != .type_name and tok.kind != .id) return error.InvalidSyntax;
     const type_name = tok.text;
 
-    var type_info = Registry.TypeInfo{ .name = type_name };
+    var type_info = c_types.TypeInfo{ .name = type_name };
 
     // Parse pointers
     type_info = try self.parsePointers(allocator, inner_is_const, type_info, ptrs_optional);
@@ -271,7 +272,7 @@ fn parseDeclaration(
     var inner_type = &type_info;
     while (try parseArrayDeclarator(self)) |array_size| {
         // Move the current inner type to a new node on the heap
-        const child = try allocator.create(Registry.TypeInfo);
+        const child = try allocator.create(c_types.TypeInfo);
         child.* = inner_type.*;
 
         // Re-assign the previous inner type for the array type info node
@@ -298,7 +299,7 @@ fn parseDeclaration(
 fn parseFnPtrSuffix(
     self: *@This(),
     allocator: std.mem.Allocator,
-    return_type: Registry.TypeInfo,
+    return_type: c_types.TypeInfo,
     ptrs_optional: bool,
 ) !?CDeclaration {
     const lparen = try self.peek();
@@ -321,7 +322,7 @@ fn parseFnPtrSuffix(
     _ = try self.expect(.rparen);
     _ = try self.expect(.lparen);
 
-    const return_type_heap = try allocator.create(Registry.TypeInfo);
+    const return_type_heap = try allocator.create(c_types.TypeInfo);
     return_type_heap.* = return_type;
 
     var command_ptr = CDeclaration{
@@ -329,7 +330,7 @@ fn parseFnPtrSuffix(
         .decl_type = .{
             .command_ptr = .{
                 .name = name.text,
-                .params = &[_]Registry.Command.Param{},
+                .params = &[_]c_types.Command.Param{},
                 .return_type = return_type_heap,
                 .success_codes = &[_][]const u8{},
                 .error_codes = &[_][]const u8{},
@@ -351,7 +352,7 @@ fn parseFnPtrSuffix(
     // There is no good way to estimate the number of parameters beforehand.
     // Fortunately, there are usually a relatively low number of parameters to a function pointer,
     // so an ArrayList backed by an arena allocator is good enough.
-    var params = std.array_list.Managed(Registry.Command.Param).init(allocator);
+    var params = std.array_list.Managed(c_types.Command.Param).init(allocator);
     try params.append(.{
         .name = first_param.name.?,
         .param_type = first_param.decl_type,
@@ -379,7 +380,13 @@ fn parseFnPtrSuffix(
 }
 
 // POINTERS = (kw_const? '*')*
-fn parsePointers(self: *@This(), allocator: std.mem.Allocator, inner_const: bool, inner: Registry.TypeInfo, ptrs_optional: bool) !Registry.TypeInfo {
+fn parsePointers(
+    self: *@This(),
+    allocator: std.mem.Allocator,
+    inner_const: bool,
+    inner: c_types.TypeInfo,
+    ptrs_optional: bool,
+) !c_types.TypeInfo {
     var type_info = inner;
     var first_const = inner_const;
 
@@ -402,7 +409,7 @@ fn parsePointers(self: *@This(), allocator: std.mem.Allocator, inner_const: bool
 
         _ = try self.nextNoEof();
 
-        const child = try allocator.create(Registry.TypeInfo);
+        const child = try allocator.create(c_types.TypeInfo);
         child.* = type_info;
 
         type_info = .{
@@ -417,7 +424,7 @@ fn parsePointers(self: *@This(), allocator: std.mem.Allocator, inner_const: bool
 }
 
 // ARRAY_DECLARATOR = '[' (int | enum_name) ']'
-fn parseArrayDeclarator(self: *@This()) !?Registry.Array.Size {
+fn parseArrayDeclarator(self: *@This()) !?c_types.Array.Size {
     const lbracket = try self.peek();
     if (lbracket == null or lbracket.?.kind != .lbracket) {
         return null;
@@ -426,7 +433,7 @@ fn parseArrayDeclarator(self: *@This()) !?Registry.Array.Size {
     _ = try self.nextNoEof();
 
     const size_tok = try self.nextNoEof();
-    const size: Registry.Array.Size = switch (size_tok.kind) {
+    const size: c_types.Array.Size = switch (size_tok.kind) {
         .int => .{
             .int = std.fmt.parseInt(usize, size_tok.text, 10) catch |err| switch (err) {
                 error.Overflow => return error.Overflow,
@@ -554,7 +561,7 @@ test "parseTypedef" {
 
     try std.testing.expectEqualSlices(u8, "pythons", decl.name);
     const array = decl.decl_type.typedef.array;
-    try std.testing.expectEqual(Registry.Array.Size{ .int = 4 }, array.size);
+    try std.testing.expectEqual(c_types.Array.Size{ .int = 4 }, array.size);
     const ptr = array.child.pointer;
     try std.testing.expectEqual(true, ptr.is_const);
     try std.testing.expectEqualSlices(u8, "Python", ptr.child.name);

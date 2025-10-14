@@ -5,6 +5,7 @@ const CTokenizer = @import("registry/CTokenizer.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const CaseStyle = IdRenderer.CaseStyle;
+const c_types = @import("registry/c_types.zig");
 
 const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
     .{ "void", @typeName(void) },
@@ -108,7 +109,7 @@ const ParamType = enum {
 
 const ReturnValue = struct {
     name: []const u8,
-    return_value_type: Registry.TypeInfo,
+    return_value_type: c_types.TypeInfo,
     origin: enum {
         parameter,
         inner_return_value,
@@ -410,7 +411,7 @@ fn renderApiConstantExpr(this: *Self, writer: *std.Io.Writer, expr: []const u8) 
     }
 }
 
-fn renderTypeInfo(this: *Self, writer: *std.Io.Writer, type_info: Registry.TypeInfo) IdRenderer.Error!void {
+fn renderTypeInfo(this: *Self, writer: *std.Io.Writer, type_info: c_types.TypeInfo) IdRenderer.Error!void {
     switch (type_info) {
         .name => |name| try this.renderName(writer, name),
         .command_ptr => |command_ptr| try this.renderCommandPtr(writer, command_ptr, true),
@@ -451,7 +452,12 @@ fn renderName(this: *Self, writer: *std.Io.Writer, name: []const u8) IdRenderer.
     try this.writeIdentifier(writer, name);
 }
 
-fn renderCommandPtr(this: *Self, writer: *std.Io.Writer, command_ptr: Registry.Command, optional: bool) IdRenderer.Error!void {
+fn renderCommandPtr(
+    this: *Self,
+    writer: *std.Io.Writer,
+    command_ptr: c_types.Command,
+    optional: bool,
+) IdRenderer.Error!void {
     if (optional) {
         try writer.writeByte('?');
     }
@@ -483,7 +489,7 @@ fn renderCommandPtr(this: *Self, writer: *std.Io.Writer, command_ptr: Registry.C
     try this.renderTypeInfo(writer, command_ptr.return_type.*);
 }
 
-fn renderPointer(this: *Self, writer: *std.Io.Writer, pointer: Registry.Pointer) IdRenderer.Error!void {
+fn renderPointer(this: *Self, writer: *std.Io.Writer, pointer: c_types.Pointer) IdRenderer.Error!void {
     const child_is_void = pointer.child.* == .name and mem.eql(u8, pointer.child.name, "void");
 
     if (pointer.is_optional) {
@@ -508,7 +514,7 @@ fn renderPointer(this: *Self, writer: *std.Io.Writer, pointer: Registry.Pointer)
     }
 }
 
-fn renderArray(this: *Self, writer: *std.Io.Writer, array: Registry.Array) !void {
+fn renderArray(this: *Self, writer: *std.Io.Writer, array: c_types.Array) !void {
     try writer.writeByte('[');
     switch (array.size) {
         .int => |size| try writer.print("{}", .{size}),
@@ -769,7 +775,7 @@ fn renderForeign(this: *Self, writer: *std.Io.Writer, name: []const u8, foreign:
     }
 }
 
-fn renderTypedef(this: *Self, writer: *std.Io.Writer, name: []const u8, type_info: Registry.TypeInfo) !void {
+fn renderTypedef(this: *Self, writer: *std.Io.Writer, name: []const u8, type_info: c_types.TypeInfo) !void {
     try writer.writeAll("pub const ");
     try this.renderName(writer, name);
     try writer.writeAll(" = ");
