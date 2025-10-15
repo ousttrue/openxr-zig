@@ -82,20 +82,20 @@ pub const SegmentIterator = struct {
         };
     }
 
-    fn nextBoundary(self: SegmentIterator) usize {
-        var i = self.offset + 1;
+    fn nextBoundary(this: SegmentIterator) usize {
+        var i = this.offset + 1;
 
         while (true) {
-            if (i == self.text.len or self.text[i] == '_') {
+            if (i == this.text.len or this.text[i] == '_') {
                 return i;
             }
 
-            const prev_lower = std.ascii.isLower(self.text[i - 1]);
-            const next_lower = std.ascii.isLower(self.text[i]);
+            const prev_lower = std.ascii.isLower(this.text[i - 1]);
+            const next_lower = std.ascii.isLower(this.text[i]);
 
             if (prev_lower and !next_lower) {
                 return i;
-            } else if (i != self.offset + 1 and !prev_lower and next_lower) {
+            } else if (i != this.offset + 1 and !prev_lower and next_lower) {
                 return i - 1;
             }
 
@@ -103,30 +103,31 @@ pub const SegmentIterator = struct {
         }
     }
 
-    pub fn next(self: *SegmentIterator) ?[]const u8 {
-        while (self.offset < self.text.len and self.text[self.offset] == '_') {
-            self.offset += 1;
+    pub fn next(this: *SegmentIterator) ?[]const u8 {
+        while (this.offset < this.text.len and this.text[this.offset] == '_') {
+            this.offset += 1;
         }
 
-        if (self.offset == self.text.len) {
+        if (this.offset == this.text.len) {
             return null;
         }
 
-        const end = self.nextBoundary();
-        const word = self.text[self.offset..end];
-        self.offset = end;
+        const end = this.nextBoundary();
+        const word = this.text[this.offset..end];
+        this.offset = end;
         return word;
     }
 
-    pub fn rest(self: SegmentIterator) []const u8 {
-        if (self.offset >= self.text.len) {
+    pub fn rest(this: SegmentIterator) []const u8 {
+        if (this.offset >= this.text.len) {
             return &[_]u8{};
         } else {
-            return self.text[self.offset..];
+            return this.text[this.offset..];
         }
     }
 };
 
+allocator: std.mem.Allocator,
 tags: []const []const u8,
 text_cache: std.array_list.Managed(u8),
 
@@ -136,16 +137,18 @@ pub fn init(allocator: Allocator, registry_tags: []const Registry.Tag) @This() {
         tag.* = registry_tag.name;
     }
     return .{
+        .allocator = allocator,
         .tags = tags,
         .text_cache = std.array_list.Managed(u8).init(allocator),
     };
 }
 
-pub fn deinit(self: @This()) void {
-    self.text_cache.deinit();
+pub fn deinit(this: *@This()) void {
+    this.allocator.free(this.tags);
+    this.text_cache.deinit();
 }
 
-fn renderSnake(self: *@This(), screaming: bool, id: []const u8, tag: ?[]const u8) !void {
+fn renderSnake(this: *@This(), screaming: bool, id: []const u8, tag: ?[]const u8) !void {
     var it = SegmentIterator.init(id);
     var first = true;
 
@@ -153,31 +156,31 @@ fn renderSnake(self: *@This(), screaming: bool, id: []const u8, tag: ?[]const u8
         if (first) {
             first = false;
         } else {
-            try self.text_cache.append('_');
+            try this.text_cache.append('_');
         }
 
         for (segment) |c| {
-            try self.text_cache.append(if (screaming) std.ascii.toUpper(c) else std.ascii.toLower(c));
+            try this.text_cache.append(if (screaming) std.ascii.toUpper(c) else std.ascii.toLower(c));
         }
     }
 
     if (tag) |name| {
-        try self.text_cache.append('_');
+        try this.text_cache.append('_');
 
         for (name) |c| {
-            try self.text_cache.append(if (screaming) std.ascii.toUpper(c) else std.ascii.toLower(c));
+            try this.text_cache.append(if (screaming) std.ascii.toUpper(c) else std.ascii.toLower(c));
         }
     }
 }
 
-fn renderCamel(self: *@This(), title: bool, id: []const u8, tag: ?[]const u8) !void {
+fn renderCamel(this: *@This(), title: bool, id: []const u8, tag: ?[]const u8) !void {
     var it = SegmentIterator.init(id);
     var lower_first = !title;
 
     while (it.next()) |segment| {
         var i: usize = 0;
         while (i < segment.len and std.ascii.isDigit(segment[i])) {
-            try self.text_cache.append(segment[i]);
+            try this.text_cache.append(segment[i]);
             i += 1;
         }
 
@@ -186,52 +189,52 @@ fn renderCamel(self: *@This(), title: bool, id: []const u8, tag: ?[]const u8) !v
         }
 
         if (i == 0 and lower_first) {
-            try self.text_cache.append(std.ascii.toLower(segment[i]));
+            try this.text_cache.append(std.ascii.toLower(segment[i]));
         } else {
-            try self.text_cache.append(std.ascii.toUpper(segment[i]));
+            try this.text_cache.append(std.ascii.toUpper(segment[i]));
         }
         lower_first = false;
 
         for (segment[i + 1 ..]) |c| {
-            try self.text_cache.append(std.ascii.toLower(c));
+            try this.text_cache.append(std.ascii.toLower(c));
         }
     }
 
     if (tag) |name| {
-        try self.text_cache.appendSlice(name);
+        try this.text_cache.appendSlice(name);
     }
 }
 
 pub fn renderFmt(
-    self: *@This(),
+    this: *@This(),
     out: *std.io.Writer,
     comptime fmt: []const u8,
     args: anytype,
 ) Error!void {
-    self.text_cache.items.len = 0;
-    try std.fmt.format(self.text_cache.writer(), fmt, args);
-    try writeIdentifier(out, self.text_cache.items);
+    this.text_cache.items.len = 0;
+    try std.fmt.format(this.text_cache.writer(), fmt, args);
+    try writeIdentifier(out, this.text_cache.items);
 }
 
-pub fn renderWithCase(self: *@This(), out: *std.io.Writer, case_style: CaseStyle, id: []const u8) !void {
-    const tag = self.getAuthorTag(id);
+pub fn renderWithCase(this: *@This(), out: *std.io.Writer, case_style: CaseStyle, id: []const u8) !void {
+    const tag = this.getAuthorTag(id);
     // The trailing underscore doesn't need to be removed here as its removed by the SegmentIterator.
     const adjusted_id = if (tag) |name| id[0 .. id.len - name.len] else id;
 
-    self.text_cache.items.len = 0;
+    this.text_cache.items.len = 0;
 
     switch (case_style) {
-        .snake => try self.renderSnake(false, adjusted_id, tag),
-        .screaming_snake => try self.renderSnake(true, adjusted_id, tag),
-        .title => try self.renderCamel(true, adjusted_id, tag),
-        .camel => try self.renderCamel(false, adjusted_id, tag),
+        .snake => try this.renderSnake(false, adjusted_id, tag),
+        .screaming_snake => try this.renderSnake(true, adjusted_id, tag),
+        .title => try this.renderCamel(true, adjusted_id, tag),
+        .camel => try this.renderCamel(false, adjusted_id, tag),
     }
 
-    try writeIdentifier(out, self.text_cache.items);
+    try writeIdentifier(out, this.text_cache.items);
 }
 
-pub fn getAuthorTag(self: @This(), id: []const u8) ?[]const u8 {
-    for (self.tags) |tag| {
+pub fn getAuthorTag(this: @This(), id: []const u8) ?[]const u8 {
+    for (this.tags) |tag| {
         if (mem.endsWith(u8, id, tag)) {
             return tag;
         }
@@ -245,8 +248,8 @@ pub fn getAuthorTag(self: @This(), id: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn stripAuthorTag(self: @This(), id: []const u8) []const u8 {
-    if (self.getAuthorTag(id)) |tag| {
+pub fn stripAuthorTag(this: @This(), id: []const u8) []const u8 {
+    if (this.getAuthorTag(id)) |tag| {
         return mem.trimRight(u8, id[0 .. id.len - tag.len], "_");
     }
 

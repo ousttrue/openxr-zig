@@ -159,12 +159,36 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) !@This() {
 }
 
 pub fn deinit(this: *@This()) void {
-    var it = this.moduleFileMap.iterator();
-    while (it.next()) |entry| {
-        this.allocator.free(entry.value_ptr.*);
+    this.id_renderer.deinit();
+    {
+        var it = this.moduleFileMap.iterator();
+        while (it.next()) |entry| {
+            this.allocator.free(entry.key_ptr.*);
+            this.allocator.free(entry.value_ptr.*);
+        }
+        this.moduleFileMap.deinit();
     }
-    this.moduleFileMap.deinit();
-    this.declarations_by_name.deinit();
+    {
+        // var it = this.declarations_by_name.iterator();
+        // while (it.next()) |entry| {
+        //     this.allocator.free(entry.value_ptr.*);
+        // }
+        this.declarations_by_name.deinit();
+    }
+    {
+        // var it = this.structure_types.iterator();
+        // while (it.next()) |entry| {
+        //     this.allocator.free(entry.value_ptr.*);
+        // }
+        this.structure_types.deinit();
+    }
+}
+
+fn putFile(this: *@This(), comptime fmt: []const u8, args: anytype, content: []const u8) !void {
+    try this.moduleFileMap.put(
+        try std.fmt.allocPrint(this.allocator, fmt, args),
+        try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{content}, 0),
+    );
 }
 
 fn writeIdentifier(_: *@This(), writer: *std.Io.Writer, id: []const u8) !void {
@@ -1292,17 +1316,6 @@ fn renderResultAsErrorName(this: *@This(), writer: *std.Io.Writer, name: []const
     }
 }
 
-// fn getOrCreateBuffer(this: *@This(), name: []const u8) !*std.array_list.Managed(u8) {
-//     if (this.moduleFileMap.get(name)) |buf| {
-//         return buf;
-//     } else {
-//         const buf = try this.allocator.create(std.array_list.Managed(u8));
-//         buf.* = .init(this.allocator);
-//         try this.moduleFileMap.put(name, buf);
-//         return buf;
-//     }
-// }
-
 pub fn render(this: *@This()) !void {
     {
         var arena = std.heap.ArenaAllocator.init(this.allocator);
@@ -1385,11 +1398,7 @@ pub fn render(this: *@This()) !void {
             }
         }
 
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
-            "core.zig",
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
-        );
+        try this.putFile("core.zig", .{}, try allocating.toOwnedSlice());
     }
 
     // features/*.zig
@@ -1410,11 +1419,10 @@ pub fn render(this: *@This()) !void {
             }
         }
 
-        const module_file = try std.fmt.allocPrint(this.allocator, "features/{s}.zig", .{feature.name});
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
-            module_file,
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        try this.putFile(
+            "features/{s}.zig",
+            .{feature.name},
+            try allocating.toOwnedSlice(),
         );
     }
 
@@ -1434,10 +1442,10 @@ pub fn render(this: *@This()) !void {
             });
         }
 
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
+        try this.putFile(
             "features/features.zig",
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+            .{},
+            try allocating.toOwnedSlice(),
         );
     }
 
@@ -1459,11 +1467,10 @@ pub fn render(this: *@This()) !void {
             }
         }
 
-        const module_file = try std.fmt.allocPrint(this.allocator, "extensions/{s}.zig", .{extension.name});
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
-            module_file,
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+        try this.putFile(
+            "extensions/{s}.zig",
+            .{extension.name},
+            try allocating.toOwnedSlice(),
         );
     }
 
@@ -1483,10 +1490,10 @@ pub fn render(this: *@This()) !void {
             });
         }
 
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
+        try this.putFile(
             "extensions/extensions.zig",
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+            .{},
+            try allocating.toOwnedSlice(),
         );
     }
 
@@ -1504,10 +1511,10 @@ pub fn render(this: *@This()) !void {
         );
         try writer.writeAll(@embedFile("template/xr.zig"));
 
-        const slice = try allocating.toOwnedSlice();
-        try this.moduleFileMap.put(
+        try this.putFile(
             "xr.zig",
-            try std.fmt.allocPrintSentinel(this.allocator, "{s}", .{slice}, 0),
+            .{},
+            try allocating.toOwnedSlice(),
         );
     }
 

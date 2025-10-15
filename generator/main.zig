@@ -9,9 +9,9 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const allocator = gpa.allocator();
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-
     const registry = try Registry.load(arena.allocator(), args.xml_path);
     const version = registry.getConstant("XR_CURRENT_API_VERSION") orelse unreachable;
     std.log.debug("{f}", .{version});
@@ -57,7 +57,7 @@ pub fn main() !void {
     std.log.debug("  typedef => {}", .{counter.typedef});
     std.log.debug("  external => {}", .{counter.external});
 
-    var renderer = try Renderer.init(arena.allocator(), &registry);
+    var renderer = try Renderer.init(allocator, &registry);
     defer renderer.deinit();
     try renderer.render();
 
