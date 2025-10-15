@@ -61,9 +61,13 @@ pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
 
 pub fn parseDeclarations(allocator: std.mem.Allocator, root: *XmlElement) ![]@This() {
     const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
-    const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
+    var commands_elems_it = root.findChildrenByTag("commands");
 
-    const decl_upper_bound = types_elem.children.len + commands_elem.children.len;
+    var decl_upper_bound = types_elem.children.len;
+    while (commands_elems_it.next()) |commands_elem| {
+        decl_upper_bound += commands_elem.children.len;
+    }
+
     const decls = try allocator.alloc(@This(), decl_upper_bound);
 
     var count: usize = 0;
@@ -95,7 +99,9 @@ pub fn parseDeclarations(allocator: std.mem.Allocator, root: *XmlElement) ![]@Th
             count += 1;
         }
     }
-    {
+
+    commands_elems_it = root.findChildrenByTag("commands");
+    while (commands_elems_it.next()) |commands_elem| {
         var it = commands_elem.findChildrenByTag("command");
         while (it.next()) |elem| {
             if (elem.getAttribute("alias")) |alias| {
