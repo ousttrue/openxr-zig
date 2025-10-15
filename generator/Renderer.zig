@@ -519,19 +519,6 @@ fn renderArray(this: *@This(), writer: *std.Io.Writer, array: c_types.Array) !vo
     try this.renderTypeInfo(writer, array.child.*);
 }
 
-fn renderDecl(this: *@This(), writer: *std.Io.Writer, decl: c_types.Declaration) !void {
-    switch (decl.decl_type) {
-        .container => |container| try this.renderContainer(writer, decl.name, container),
-        .enumeration => |enumeration| try this.renderEnumeration(writer, decl.name, enumeration),
-        .handle => |handle| try this.renderHandle(writer, decl.name, handle),
-        .alias => |alias| try this.renderAlias(writer, decl.name, alias),
-        .foreign => |foreign| try this.renderForeign(writer, decl.name, foreign),
-        .typedef => |type_info| try this.renderTypedef(writer, decl.name, type_info),
-        .external => try this.renderExternal(writer, decl.name),
-        .command, .bitmask => {},
-    }
-}
-
 fn renderContainer(
     this: *@This(),
     writer: *std.Io.Writer,
@@ -583,24 +570,24 @@ fn renderContainer(
         } else false;
 
         if (have_next_or_type) {
-            try writer.writeAll(
-                \\    pub fn empty() @This() {
-                \\        var value: @This() = undefined;
-            );
-
-            for (container.fields) |field| {
-                if (std.mem.eql(u8, field.name, "next") or std.mem.eql(u8, field.name, "type")) {
-                    try writer.writeAll("value.");
-                    try this.writeIdentifierWithCase(writer, .snake, field.name);
-                    try this.renderContainerDefaultField(writer, container, name, field);
-                    try writer.writeAll(";\n");
-                }
-            }
-
-            try writer.writeAll(
-                \\        return value;
-                \\    }
-            );
+            // try writer.writeAll(
+            //     \\    pub fn empty() @This() {
+            //     \\        var value: @This() = undefined;
+            // );
+            //
+            // for (container.fields) |field| {
+            //     if (std.mem.eql(u8, field.name, "next") or std.mem.eql(u8, field.name, "type")) {
+            //         try writer.writeAll("value.");
+            //         try this.writeIdentifierWithCase(writer, .snake, field.name);
+            //         try this.renderContainerDefaultField(writer, container, name, field);
+            //         try writer.writeAll(";\n");
+            //     }
+            // }
+            //
+            // try writer.writeAll(
+            //     \\        return value;
+            //     \\    }
+            // );
         }
     }
 
@@ -756,26 +743,6 @@ fn renderHandle(
     try writer.print(" = enum({s}) {{null_handle = 0, _}};\n", .{backing_type});
 }
 
-fn renderAlias(
-    this: *@This(),
-    writer: *std.Io.Writer,
-    name: []const u8,
-    alias: c_types.Declaration.Alias,
-) !void {
-    if (alias.target == .other_command) {
-        return;
-    } else if (this.extractBitflagName(name) != null) {
-        // Don't make aliases of the bitflag names, as those are replaced by just the flags type
-        return;
-    }
-
-    try writer.writeAll("pub const ");
-    try this.renderName(writer, name);
-    try writer.writeAll(" = ");
-    try this.renderName(writer, alias.name);
-    try writer.writeAll(";\n");
-}
-
 fn renderExternal(this: *@This(), writer: *std.Io.Writer, name: []const u8) !void {
     try writer.writeAll("pub const ");
     try this.renderName(writer, name);
@@ -816,28 +783,6 @@ fn renderTypedef(this: *@This(), writer: *std.Io.Writer, name: []const u8, type_
 
 fn renderCommandPtrName(this: *@This(), writer: *std.Io.Writer, name: []const u8) !void {
     try this.writeIdentifierFmt(writer, "Pfn{s}", .{trimXrNamespace(name)});
-}
-
-fn renderCommandPtrs(this: *@This(), writer: *std.Io.Writer) !void {
-    for (this.registry.decls) |decl| {
-        switch (decl.decl_type) {
-            .command => {
-                try writer.writeAll("pub const ");
-                try this.renderCommandPtrName(writer, decl.name);
-                try writer.writeAll(" = ");
-                try this.renderCommandPtr(writer, decl.decl_type.command, false);
-                try writer.writeAll(";\n");
-            },
-            .alias => |alias| if (alias.target == .other_command) {
-                try writer.writeAll("pub const ");
-                try this.renderCommandPtrName(writer, decl.name);
-                try writer.writeAll(" = ");
-                try this.renderCommandPtrName(writer, alias.name);
-                try writer.writeAll(";\n");
-            },
-            else => {},
-        }
-    }
 }
 
 fn renderExtensionInfo(this: *@This(), writer: *std.Io.Writer) !void {
@@ -1371,11 +1316,74 @@ pub fn render(this: *@This()) !void {
             try this.renderApiConstant(writer, api_constant);
         }
 
-        for (this.registry.decls) |decl| {
-            try this.renderDecl(writer, decl);
+        var used = std.StringHashMap(void).init(this.allocator);
+        defer used.deinit();
+
+        for (this.registry.decls, 0..) |decl, i| {
+            try writer.print("// decl {}: {f}\n", .{ i, decl });
+            switch (decl.decl_type) {
+                .container => |container| try this.renderContainer(writer, decl.name, container),
+                .enumeration => |enumeration| try this.renderEnumeration(writer, decl.name, enumeration),
+                .handle => |handle| try this.renderHandle(writer, decl.name, handle),
+                .alias => |alias| {
+                    switch (alias.target) {
+                        .other_command => {
+                            try writer.print("// alias {}\n", .{i});
+                            try writer.writeAll("pub const ");
+                            try this.renderCommandPtrName(writer, decl.name);
+                            try writer.writeAll(" = ");
+                            try this.renderCommandPtrName(writer, alias.name);
+                            try writer.writeAll(";\n");
+                        },
+                        .other_type => {
+                            if (this.extractBitflagName(decl.name) != null) {
+                                // Don't make aliases of the bitflag names,
+                                // as those are replaced by just the flags type
+                            } else {
+                                try writer.writeAll("pub const ");
+                                try this.renderName(writer, decl.name);
+                                try writer.writeAll(" = ");
+                                try this.renderName(writer, alias.name);
+                                try writer.writeAll(";\n");
+                            }
+                        },
+                    }
+                },
+                .foreign => |foreign| try this.renderForeign(writer, decl.name, foreign),
+                .typedef => |type_info| {
+                    try this.renderTypedef(writer, decl.name, type_info);
+                    if (std.mem.startsWith(u8, decl.name, "PFN_")) {
+                        // PFN_xrXXX
+                        try used.put(decl.name[4..], void{});
+                    }
+                },
+                .external => try this.renderExternal(writer, decl.name),
+                .command => {
+                    // duplicate typedef PFN
+                },
+                .bitmask => {},
+            }
         }
 
-        try this.renderCommandPtrs(writer);
+        for (this.registry.decls, 0..) |decl, i| {
+            switch (decl.decl_type) {
+                .command => {
+                    // xrXXX
+                    if (used.contains(decl.name)) {
+                        try writer.print("// skip {} {s}\n", .{ i, decl.name });
+                    } else {
+                        // only not found.
+                        try writer.print("// command {} {s}\n", .{ i, decl.name });
+                        try writer.writeAll("pub const ");
+                        try this.renderCommandPtrName(writer, decl.name);
+                        try writer.writeAll(" = ");
+                        try this.renderCommandPtr(writer, decl.decl_type.command, false);
+                        try writer.writeAll(";\n");
+                    }
+                },
+                else => {},
+            }
+        }
 
         const slice = try allocating.toOwnedSlice();
         try this.moduleFileMap.put(

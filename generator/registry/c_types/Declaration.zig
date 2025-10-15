@@ -45,6 +45,20 @@ pub const DeclarationType = union(enum) {
 name: []const u8,
 decl_type: DeclarationType,
 
+pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    switch (this.decl_type) {
+        .container => try writer.print("{s}: container", .{this.name}),
+        .enumeration => try writer.print("{s}: enum", .{this.name}),
+        .bitmask => try writer.print("{s}: bitmask", .{this.name}),
+        .handle => try writer.print("{s}: handle", .{this.name}),
+        .command => try writer.print("{s}: command", .{this.name}),
+        .alias => try writer.print("{s}: alias", .{this.name}),
+        .foreign => try writer.print("{s}: foreign", .{this.name}),
+        .typedef => try writer.print("{s}: typedef", .{this.name}),
+        .external => try writer.print("{s}: external", .{this.name}),
+    }
+}
+
 pub fn parseDeclarations(allocator: std.mem.Allocator, root: *XmlElement) ![]@This() {
     const types_elem = root.findChildByTag("types") orelse return error.InvalidRegistry;
     const commands_elem = root.findChildByTag("commands") orelse return error.InvalidRegistry;
