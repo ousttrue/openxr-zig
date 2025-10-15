@@ -20,7 +20,7 @@ pub const Command = struct {
     success_codes: []const []const u8,
     error_codes: []const []const u8,
 
-    fn lenToPointer(params: []Param, len: []const u8) std.meta.Tuple(&.{ Pointer.PointerSize, bool }) {
+    fn lenToPointer(params: []Param, len: []const u8) std.meta.Tuple(&.{ Pointer.Size, bool }) {
         for (params) |*param| {
             if (std.mem.eql(u8, param.name, len)) {
                 param.is_buffer_len = true;
@@ -161,7 +161,7 @@ pub const Command = struct {
 };
 
 pub const Pointer = struct {
-    pub const PointerSize = union(enum) {
+    pub const Size = union(enum) {
         one,
         many, // The length is given by some complex expression, possibly involving another field
         other_field: []const u8, // The length is given by some other field or parameter
@@ -170,7 +170,7 @@ pub const Pointer = struct {
 
     is_const: bool,
     is_optional: bool,
-    size: PointerSize,
+    size: Size,
     child: *TypeInfo,
 };
 
@@ -178,6 +178,8 @@ pub const Array = struct {
     pub const Size = union(enum) {
         int: usize,
         alias: []const u8, // Field size is given by an api constant
+        // gaze: [EYE_POSITION_COUNT_FB]EyeGazeFB, =>
+        // EyePositionFB = enum(i32) { left_fb = 0, right_fb = 1, count_fb = 2, _, }
     };
 
     size: Size,

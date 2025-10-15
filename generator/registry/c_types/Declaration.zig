@@ -47,15 +47,15 @@ decl_type: DeclarationType,
 
 pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (this.decl_type) {
-        .container => try writer.print("{s}: container", .{this.name}),
-        .enumeration => try writer.print("{s}: enum", .{this.name}),
-        .bitmask => try writer.print("{s}: bitmask", .{this.name}),
-        .handle => try writer.print("{s}: handle", .{this.name}),
-        .command => try writer.print("{s}: command", .{this.name}),
-        .alias => try writer.print("{s}: alias", .{this.name}),
-        .foreign => try writer.print("{s}: foreign", .{this.name}),
-        .typedef => try writer.print("{s}: typedef", .{this.name}),
-        .external => try writer.print("{s}: external", .{this.name}),
+        .container => try writer.print("container: {s}", .{this.name}),
+        .enumeration => try writer.print("enum: {s}", .{this.name}),
+        .bitmask => try writer.print("bitmask: {s}", .{this.name}),
+        .handle => try writer.print("handle: {s}", .{this.name}),
+        .command => try writer.print("command: {s}", .{this.name}),
+        .alias => try writer.print("alias: {s}", .{this.name}),
+        .foreign => try writer.print("foreign: {s}", .{this.name}),
+        .typedef => try writer.print("typedef: {s}", .{this.name}),
+        .external => try writer.print("external: {s}", .{this.name}),
     }
 }
 
@@ -208,7 +208,7 @@ fn parseBaseType(allocator: std.mem.Allocator, ty: *XmlElement) !@This() {
 }
 
 fn parseContainer(allocator: std.mem.Allocator, ty: *XmlElement, is_union: bool) !@This() {
-    const name = ty.getAttribute("name") orelse return error.InvalidRegistry;
+    const name = ty.getAttribute("name") orelse return error.NoName;
 
     if (ty.getAttribute("alias")) |alias| {
         return @This(){
@@ -217,73 +217,10 @@ fn parseContainer(allocator: std.mem.Allocator, ty: *XmlElement, is_union: bool)
         };
     }
 
-    var members = try allocator.alloc(Container.Field, ty.children.len);
-
-    var i: usize = 0;
-    var maybe_stype: ?[]const u8 = null;
-    {
-        var it = ty.findChildrenByTag("member");
-        while (it.next()) |member| {
-            var xctok = XmlCTokenizer.init(member);
-            members[i] = try xctok.parseMember(allocator, false);
-            if (std.mem.eql(u8, members[i].name, "type")) {
-                if (member.getAttribute("values")) |stype| {
-                    maybe_stype = stype;
-                }
-            }
-
-            if (member.getAttribute("optional")) |optionals| {
-                var optional_it = std.mem.splitScalar(u8, optionals, ',');
-                if (optional_it.next()) |first_optional| {
-                    members[i].is_optional = std.mem.eql(u8, first_optional, "true");
-                } else {
-                    // Optional is empty, probably incorrect.
-                    return error.InvalidRegistry;
-                }
-            }
-            i += 1;
-        }
-    }
-
-    members = members[0..i];
-
-    var maybe_extends: ?[][]const u8 = null;
-    if (ty.getAttribute("structextends")) |extends| {
-        const n_structs = std.mem.count(u8, extends, ",") + 1;
-        maybe_extends = try allocator.alloc([]const u8, n_structs);
-        var struct_extends = std.mem.splitScalar(u8, extends, ',');
-        var j: usize = 0;
-        while (struct_extends.next()) |struct_extend| {
-            maybe_extends.?[j] = struct_extend;
-            j += 1;
-        }
-    }
-
-    {
-        var it = ty.findChildrenByTag("member");
-        for (members) |*member| {
-            const member_elem = it.next().?;
-            Container.parsePointerMeta(&member.field_type, members, member_elem) catch |e| {
-                std.log.err("{f}", .{member_elem});
-                return e;
-            };
-
-            // next isn't always properly marked as optional, so just manually override it,
-            if (std.mem.eql(u8, member.name, "next")) {
-                member.field_type.pointer.is_optional = true;
-            }
-        }
-    }
-
     return @This(){
         .name = name,
         .decl_type = .{
-            .container = .{
-                .stype = maybe_stype,
-                .fields = members,
-                .is_union = is_union,
-                .extends = maybe_extends,
-            },
+            .container = try Container.parse(allocator, ty, is_union),
         },
     };
 }

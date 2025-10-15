@@ -79,11 +79,11 @@ fn next(self: *@This()) !?CTokenizer.Token {
     }
 }
 
-fn nextNoEof(self: *@This()) !CTokenizer.Token {
+pub fn nextNoEof(self: *@This()) !CTokenizer.Token {
     return (try self.next()) orelse return error.UnexpectedEof;
 }
 
-fn peek(self: *@This()) !?CTokenizer.Token {
+pub fn peek(self: *@This()) !?CTokenizer.Token {
     if (self.current) |current| {
         return current;
     }
@@ -96,7 +96,7 @@ fn peekNoEof(self: *@This()) !CTokenizer.Token {
     return (try self.peek()) orelse return error.UnexpectedEof;
 }
 
-fn expect(self: *@This(), kind: CTokenizer.Token.Kind) !CTokenizer.Token {
+pub fn expect(self: *@This(), kind: CTokenizer.Token.Kind) !CTokenizer.Token {
     const tok = (try self.next()) orelse return error.UnexpectedEof;
     if (tok.kind != kind) {
         return error.UnexpectedToken;
@@ -187,40 +187,6 @@ pub fn parseParamOrProto(self: *@This(), allocator: std.mem.Allocator, ptrs_opti
     };
 }
 
-// MEMBER = DECLARATION (':' int)?
-pub fn parseMember(
-    self: *@This(),
-    allocator: std.mem.Allocator,
-    ptrs_optional: bool,
-) !Container.Field {
-    const decl = try self.parseDeclaration(allocator, ptrs_optional);
-    var field = Container.Field{
-        .name = decl.name orelse return error.MissingTypeIdentifier,
-        .field_type = decl.decl_type,
-        .bits = null,
-        .is_buffer_len = false,
-        .is_optional = false,
-    };
-
-    if (try self.peek()) |tok| {
-        if (tok.kind != .colon) {
-            return error.InvalidSyntax;
-        }
-
-        _ = try self.nextNoEof();
-        const bits = try self.expect(.int);
-        field.bits = try std.fmt.parseInt(usize, bits.text, 10);
-
-        // Assume for now that there won't be any invalid C types like `char char* x : 4`.
-
-        if (try self.peek()) |_| {
-            return error.InvalidSyntax;
-        }
-    }
-
-    return field;
-}
-
 pub const CDeclaration = struct {
     name: ?[]const u8, // Parameter names may be optional, especially in case of func(void)
     decl_type: c_types.TypeInfo,
@@ -230,7 +196,7 @@ pub const CDeclaration = struct {
 // DECLARATION = kw_const? type_name DECLARATOR
 // DECLARATOR = POINTERS (id | name)? ('[' ARRAY_DECLARATOR ']')*
 //     | POINTERS '(' FNPTRSUFFIX
-fn parseDeclaration(
+pub fn parseDeclaration(
     self: *@This(),
     allocator: std.mem.Allocator,
     ptrs_optional: bool,

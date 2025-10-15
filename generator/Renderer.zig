@@ -1320,7 +1320,7 @@ pub fn render(this: *@This()) !void {
         defer used.deinit();
 
         for (this.registry.decls, 0..) |decl, i| {
-            try writer.print("// decl {}: {f}\n", .{ i, decl });
+            try writer.print("// [{}] {f}\n", .{ i, decl });
             switch (decl.decl_type) {
                 .container => |container| try this.renderContainer(writer, decl.name, container),
                 .enumeration => |enumeration| try this.renderEnumeration(writer, decl.name, enumeration),
