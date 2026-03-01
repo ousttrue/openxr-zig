@@ -17,22 +17,28 @@ pub fn build(b: *std.Build) !void {
         //     .args = &.{"-DDYNAMIC_LOADER=ON"},
         // });
     } else {
-        const vcenv = try zbk.windows.VcEnv.init(b.allocator);
-        const cmake_build = try zbk.cpp.cmake.build(b, .{
-            .source = source,
+        // const vcenv = try zbk.windows.VcEnv.init(b.allocator);
+        const cmake_build = zbk.cpp.CMakeStep.create(b, .{
+            .source = source.getPath(b),
             .build_dir_name = "build-win32",
-            .envmap = vcenv.envmap,
+            .use_vcenv = target.result.os.tag == .windows,
             .args = &.{"-DDYNAMIC_LOADER=ON"},
         });
+
         const install = b.addInstallDirectory(.{
-            .source_dir = cmake_build.prefix.getDirectory(),
-            .install_dir = .prefix,
+            .source_dir = cmake_build.getInstallPrefix(),
+            .install_dir = .{ .custom = "" },
             .install_subdir = "",
         });
+        // const install = b.addInstallDirectory(.{
+        //     .source_dir = cmake_build.prefix.getDirectory(),
+        //     .install_dir = .prefix,
+        //     .install_subdir = "",
+        // });
         b.getInstallStep().dependOn(&install.step);
 
         const prefix = b.addNamedWriteFiles("prefix");
-        _ = prefix.addCopyDirectory(cmake_build.prefix.getDirectory(), "", .{});
+        _ = prefix.addCopyDirectory(cmake_build.getInstallPrefix(), "", .{});
         _ = prefix.addCopyFile(source.path(b, "specification/registry/xr.xml"), "xr.xml");
     }
 }

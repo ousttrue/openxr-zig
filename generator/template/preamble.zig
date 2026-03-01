@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("root");
 
+const EYE_POSITION_COUNT_FB = 2;
+
 pub const openxr_call_conv: std.builtin.CallingConvention = if (builtin.os.tag == .windows and builtin.cpu.arch == .x86)
     .Stdcall
 else if (builtin.abi == .android and (builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb()) and builtin.Target.arm.featureSetHas(builtin.cpu.features, .has_v7) and builtin.cpu.arch.ptrBitWidth() == 32)

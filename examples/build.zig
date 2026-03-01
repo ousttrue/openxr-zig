@@ -24,9 +24,9 @@ pub fn build(b: *std.Build) !void {
     exe.addLibraryPath(openxr_loader_prefix.getDirectory().path(b, "lib"));
     exe.linkSystemLibrary("openxr_loader");
     // copy dll
-    const dll = b.addInstallBinFile(
-        openxr_loader_prefix.getDirectory().path(b, "bin/openxr_loader.dll"),
-        "openxr_loader.dll",
+    const dll = b.addInstallLibFile(
+        openxr_loader_prefix.getDirectory().path(b, "lib/libopenxr_loader.so.1.1.52"),
+        "libopenxr_loader.so",
     );
     b.getInstallStep().dependOn(&dll.step);
 

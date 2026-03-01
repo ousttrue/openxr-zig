@@ -6,8 +6,8 @@
     .fingerprint = 0xa6eefe1668cb4a2e,
     .dependencies = .{
         .zbk = .{
-            .url = "git+https://github.com/ousttrue/zbk.git#3f6408ad863ce9ec7629b4e4649af130b7876231",
-            .hash = "zbk-0.0.1-6gzT3l1QKABySw-pC3tnqzSlGotNSEOk0sFyWpuSpCx5",
+            .url = "git+https://github.com/ousttrue/zbk.git#0bfb5ae3169f4c5ba1022a8e8d796bda29ce4706",
+            .hash = "zbk-0.0.1-6gzT3j1dKQCiPlNIEcixSypa2oKVGW_6x2ZpX5vs_cPU",
         },
     },
 }
